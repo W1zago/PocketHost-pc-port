@@ -1,0 +1,118 @@
+CREATE TABLE IF NOT EXISTS servers (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  workingDirectory TEXT NOT NULL,
+  status TEXT NOT NULL,
+  autoStart INTEGER DEFAULT 0 NOT NULL,
+  createdAt INTEGER NOT NULL,
+  lastStarted INTEGER,
+  pid INTEGER DEFAULT -1 NOT NULL,
+  maxMemory INTEGER DEFAULT 1024 NOT NULL,
+  minMemory INTEGER DEFAULT 512 NOT NULL,
+  minecraftVersion TEXT,
+  minecraftLoader TEXT,
+  loaderVersion TEXT,
+  environment TEXT,
+  startCommand TEXT DEFAULT '',
+  stopCommand TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_servers_type ON servers(type);
+CREATE INDEX IF NOT EXISTS idx_servers_status ON servers(status);
+
+getAllServers:
+SELECT * FROM servers ORDER BY createdAt DESC;
+
+getServerById:
+SELECT * FROM servers WHERE id = ?;
+
+getServersByType:
+SELECT * FROM servers WHERE type = ? ORDER BY createdAt DESC;
+
+getRunningServers:
+SELECT * FROM servers WHERE status = 'RUNNING' ORDER BY createdAt DESC;
+
+insertServer:
+INSERT INTO servers (
+  id, name, type, port, workingDirectory, status, autoStart,
+  createdAt, lastStarted, pid, maxMemory, minMemory,
+  minecraftVersion, minecraftLoader, loaderVersion,
+  environment, startCommand, stopCommand
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateServer:
+UPDATE servers SET
+  name = ?,
+  port = ?,
+  status = ?,
+  autoStart = ?,
+  lastStarted = ?,
+  pid = ?,
+  maxMemory = ?,
+  minMemory = ?
+WHERE id = ?;
+
+updateServerStatus:
+UPDATE servers SET status = ? WHERE id = ?;
+
+updateServerPid:
+UPDATE servers SET pid = ? WHERE id = ?;
+
+deleteServer:
+DELETE FROM servers WHERE id = ?;
+
+-- Server logs
+
+CREATE TABLE IF NOT EXISTS server_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  serverId TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  level TEXT NOT NULL,
+  message TEXT NOT NULL,
+  FOREIGN KEY (serverId) REFERENCES servers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_server ON server_logs(serverId, timestamp DESC);
+
+getServerLogs:
+SELECT * FROM server_logs
+WHERE serverId = ?
+ORDER BY timestamp ASC
+LIMIT ?;
+
+getRecentServerLogs:
+SELECT * FROM server_logs
+WHERE serverId = ? AND timestamp > ?
+ORDER BY timestamp ASC;
+
+insertLog:
+INSERT INTO server_logs (serverId, timestamp, level, message)
+VALUES (?, ?, ?, ?);
+
+deleteOldLogs:
+DELETE FROM server_logs
+WHERE timestamp < ?;
+
+deleteServerLogs:
+DELETE FROM server_logs WHERE serverId = ?;
+
+-- Settings
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL
+);
+
+getSetting:
+SELECT value FROM settings WHERE key = ?;
+
+setSetting:
+INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);
+
+getAllSettings:
+SELECT * FROM settings;
+
+deleteSetting:
+DELETE FROM settings WHERE key = ?;

@@ -1,0 +1,42 @@
+# Gradle
+.gradle/
+build/
+out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Compose Desktop
+desktop/build/
+common/build/
+compose-desktop/
+
+# SQLDelight generated
+common/build/generated/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# OS
+*.log
+hs_err_pid*
+replay_pid*
+
+# App data (don't commit user servers)
+servers/
+.pockethost/
+
+# Secrets
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Node (if any)
+node_modules/
