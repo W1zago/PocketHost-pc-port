@@ -99,4 +99,23 @@ object FileUtils {
             else -> "$bytes B"
         }
     }
+
+    fun validatePath(path: File, baseDir: File): Boolean {
+        return try {
+            val canonical = path.canonicalPath
+            val base = baseDir.canonicalPath
+            canonical.startsWith(base)
+        } catch (_: Exception) { false }
+    }
+
+    fun validateServerName(name: String): String? {
+        return when {
+            name.isBlank() -> "Name cannot be empty"
+            name.length < 3 -> "Name must be at least 3 characters"
+            name.length > 32 -> "Name must be at most 32 characters"
+            !name.matches(Regex("^[a-zA-Z0-9_-]+$")) -> "Name can only contain letters, numbers, hyphens and underscores"
+            name.startsWith("-") || name.startsWith("_") -> "Name cannot start with hyphen or underscore"
+            else -> null
+        }
+    }
 }

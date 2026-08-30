@@ -28,6 +28,8 @@ class MinecraftServerManager {
         maxMemory: Int = 2048,
         minMemory: Int = 1024,
         customDir: String? = null,
+        offlineMode: Boolean = false,
+        viewDistance: Int = 10,
         onProgress: (String) -> Unit = {}
     ): Server? = withContext(Dispatchers.IO) {
         try {
@@ -78,7 +80,7 @@ class MinecraftServerManager {
             }
 
             createEula(serverDir)
-            createServerProperties(serverDir, availablePort)
+            createServerProperties(serverDir, availablePort, offlineMode, viewDistance)
             val effectiveJar = if (File(serverDir, jarName).exists()) jarName else if (genericJar.exists()) "server.jar" else jarName
             createStartScript(serverDir, effectiveJar, maxMemory, minMemory)
 
@@ -473,16 +475,16 @@ class MinecraftServerManager {
         FileUtils.writeFile(File(serverDir, "eula.txt").absolutePath, eulaContent)
     }
 
-    private fun createServerProperties(serverDir: File, port: Int) {
+    private fun createServerProperties(serverDir: File, port: Int, offlineMode: Boolean = false, viewDistance: Int = 10) {
         val properties = """
             server-port=$port
             max-players=20
             gamemode=survival
             difficulty=normal
             pvp=true
-            online-mode=true
+            online-mode=${if (offlineMode) "false" else "true"}
             motd=A Minecraft Server powered by PocketHost
-            view-distance=10
+            view-distance=${viewDistance.coerceIn(2, 32)}
             spawn-protection=16
             enable-command-block=false
             allow-flight=false
@@ -493,6 +495,12 @@ class MinecraftServerManager {
             generate-structures=true
         """.trimIndent()
         FileUtils.writeFile(File(serverDir, "server.properties").absolutePath, properties)
+        if (offlineMode) {
+            try {
+                val uuid = java.util.UUID.randomUUID().toString()
+                File(serverDir, ".offline-uuid").writeText(uuid)
+            } catch (_: Exception) {}
+        }
     }
 
     private fun createStartScript(serverDir: File, jarFile: String, maxMem: Int, minMem: Int) {

@@ -112,7 +112,7 @@ object FirewallManager {
     }
 
     private fun addMacRule(port: Int): Boolean {
-        AppLogger.info("macOS firewall manual: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ${File(System.getProperty("user.home"), ".pockethost").absolutePath}")
+        AppLogger.info("macOS firewall manual for port $port: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ${File(System.getProperty("user.home"), ".pockethost").absolutePath} (port $port requires manual pfctl)")
         // macOS requires manual pfctl or socketfilterfw, return true as best-effort
         return true
     }

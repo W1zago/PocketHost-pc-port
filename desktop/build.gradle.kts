@@ -28,11 +28,19 @@ compose.desktop {
     application {
         mainClass = "com.pockethost.desktop.MainKt"
         nativeDistributions {
-            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
+            targetFormats(
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe
+            )
             packageName = "PocketHost"
             packageVersion = "1.0.0"
-            description = "Server management platform for PC"
+            description = "Server management platform for PC - SERVER ANYWHERE"
             vendor = "PocketHost"
+            windows {
+                iconFile.set(project.file("src/main/resources/icon.ico"))
+                menuGroup = "PocketHost"
+                upgradeUuid = "9a4e2e1c-7f3d-4b8a-9c1e-5f6a7b8c9d0e"
+            }
         }
         buildTypes.release.proguard {
             isEnabled = false

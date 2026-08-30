@@ -31,6 +31,8 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
     var maxMemory by remember { mutableStateOf("2048") }
     var minMemory by remember { mutableStateOf("1024") }
     var customDir by remember { mutableStateOf("") }
+    var offlineMode by remember { mutableStateOf(false) }
+    var renderDistance by remember { mutableStateOf(10) }
     var isCreating by remember { mutableStateOf(false) }
     var progressLog by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -42,20 +44,55 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
     }
     LaunchedEffect(name) { if (name.isNotBlank()) updateCustomDirFromName() }
 
-    LaunchedEffect(loader) {
-        scope.launch {
-            val versions = manager.fetchAvailableVersions(loader)
-            if (versions.isNotEmpty()) {
+    var versionEntries by remember { mutableStateOf<List<com.pockethost.desktop.minecraft.VersionEntry>>(emptyList()) }
+    var versionFilter by remember { mutableStateOf<com.pockethost.desktop.minecraft.VersionManifestManager.ManifestFilter>(com.pockethost.desktop.minecraft.VersionManifestManager.ManifestFilter.All) }
+    var isLoadingVersions by remember { mutableStateOf(false) }
+    var versionLoadMsg by remember { mutableStateOf("") }
+
+    suspend fun loadVersions(forceRefresh: Boolean = false) {
+        isLoadingVersions = true
+        versionLoadMsg = "Завантаження версій..."
+        try {
+            if (loader == MinecraftLoader.VANILLA) {
+                val entries = com.pockethost.desktop.minecraft.VersionManifestManager.fetchAllVersions(forceRefresh) { msg -> versionLoadMsg = msg }
+                if (entries.isNotEmpty()) {
+                    versionEntries = entries
+                    val filtered = com.pockethost.desktop.minecraft.VersionManifestManager.getFiltered(entries, versionFilter)
+                    val strList = filtered.map { it.id }
+                    availableVersions = strList
+                    if (version !in strList && strList.isNotEmpty()) version = strList.first()
+                    versionLoadMsg = "Завантажено ${entries.size} версій"
+                } else {
+                    versionLoadMsg = "Не вдалося завантажити список"
+                }
+            } else {
+                val versions = manager.fetchAvailableVersions(loader)
+                versionEntries = versions.map { com.pockethost.desktop.minecraft.VersionEntry(it, "release", "") }
                 availableVersions = versions
-                if (version !in versions) version = versions.first()
+                if (version !in versions && versions.isNotEmpty()) version = versions.first()
+                versionLoadMsg = "Завантажено ${versions.size} версій для $loader"
             }
+        } catch (e: Exception) {
+            versionLoadMsg = "Помилка: ${e.message}"
+        }
+        isLoadingVersions = false
+    }
+
+    LaunchedEffect(loader) {
+        loadVersions(false)
+    }
+    LaunchedEffect(versionFilter) {
+        if (loader == MinecraftLoader.VANILLA && versionEntries.isNotEmpty()) {
+            val filtered = com.pockethost.desktop.minecraft.VersionManifestManager.getFiltered(versionEntries, versionFilter)
+            val strList = filtered.map { it.id }
+            availableVersions = strList
+            if (version !in strList && strList.isNotEmpty()) version = strList.first()
         }
     }
 
     fun validateStep1(): Boolean {
-        if (name.isBlank()) { error = "Name cannot be empty"; return false }
-        if (name.length < 3) { error = "Name too short"; return false }
-        if (!name.matches(Regex("[a-zA-Z0-9-_]+"))) { error = "Only letters, numbers, - and _ allowed"; return false }
+        val nameError = com.pockethost.common.util.FileUtils.validateServerName(name)
+        if (nameError != null) { error = nameError; return false }
         error = null; return true
     }
     fun validateStep2(): Boolean {
@@ -126,6 +163,26 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                 2 -> {
                     Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Configuration", style = MaterialTheme.typography.titleMedium)
+                        // Version filter chips for Vanilla (Release/Snapshot/Alpha/Beta)
+                        if (loader == MinecraftLoader.VANILLA) {
+                            Text("Фільтр версій (Mojang manifest v2 + fallback)", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                com.pockethost.desktop.minecraft.VersionManifestManager.allFilters.forEach { f ->
+                                    FilterChip(selected = versionFilter == f, onClick = { versionFilter = f }, label = { Text(f.label, style = MaterialTheme.typography.labelSmall) })
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(versionLoadMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                if (isLoadingVersions) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                OutlinedButton(onClick = { scope.launch { loadVersions(true) } }, enabled = !isLoadingVersions) { Text("Оновити", style = MaterialTheme.typography.labelSmall) }
+                            }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(versionLoadMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                if (isLoadingVersions) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                OutlinedButton(onClick = { scope.launch { loadVersions(true) } }, enabled = !isLoadingVersions) { Text("Оновити") }
+                            }
+                        }
                         // Version dropdown
                         var expanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
@@ -133,13 +190,15 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                                 value = version,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Minecraft Version") },
+                                label = { Text("Minecraft Version (${availableVersions.size})") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                                 modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
                             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                 availableVersions.forEach { v ->
-                                    DropdownMenuItem(text = { Text(v) }, onClick = { version = v; expanded = false })
+                                    val entry = versionEntries.find { it.id == v }
+                                    val label = if (loader == MinecraftLoader.VANILLA && entry != null) "$v (${entry.type})" else v
+                                    DropdownMenuItem(text = { Text(label) }, onClick = { version = v; expanded = false })
                                 }
                             }
                         }
@@ -147,6 +206,35 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(value = minMemory, onValueChange = { minMemory = it.filter { c -> c.isDigit() } }, label = { Text("Min Memory (MB)") }, modifier = Modifier.weight(1f), singleLine = true)
                             OutlinedTextField(value = maxMemory, onValueChange = { maxMemory = it.filter { c -> c.isDigit() } }, label = { Text("Max Memory (MB)") }, modifier = Modifier.weight(1f), singleLine = true)
+                        }
+                        // Offline mode toggle (per-server)
+                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Офлайн режим (піратський акаунт)", style = MaterialTheme.typography.bodyMedium)
+                                    Text("online-mode=false, без перевірки Mojang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = offlineMode, onCheckedChange = { offlineMode = it })
+                            }
+                        }
+                        // Render distance per-server
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Render Distance (промальовка чанків)", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { renderDistance = 8 }, colors = if (renderDistance == 8) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Низька") }
+                                    Button(onClick = { renderDistance = 12 }, colors = if (renderDistance == 12) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Середня") }
+                                    Button(onClick = { renderDistance = 16 }, colors = if (renderDistance == 16) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Висока") }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Slider(value = renderDistance.toFloat(), onValueChange = { renderDistance = it.toInt() }, valueRange = 2f..32f, steps = 29, modifier = Modifier.weight(1f))
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("$renderDistance чанків", style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Text("view-distance=$renderDistance (застосується при наступному старті)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                         Text("Available: ${availableVersions.size} versions for $loader", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         // User-chosen directory
@@ -189,6 +277,8 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                                 Text("Version: $version")
                                 Text("Port: $port")
                                 Text("Memory: $minMemory - $maxMemory MB")
+                                Text("Offline: ${if (offlineMode) "так (online-mode=false)" else "ні (online-mode=true)"}")
+                                Text("Render Distance: $renderDistance чанків")
                                 Text("Directory: $customDir", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -243,7 +333,9 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                                         port = port.toInt(),
                                         maxMemory = maxMemory.toInt(),
                                         minMemory = minMemory.toInt(),
-                                        customDir = customDir.ifBlank { null }
+                                        customDir = customDir.ifBlank { null },
+                                        offlineMode = offlineMode,
+                                        viewDistance = renderDistance
                                     ) { msg ->
                                         progressLog += msg + "\n"
                                     }

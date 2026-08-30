@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.pockethost.common.model.Server
 import com.pockethost.common.model.ServerStatus
 import com.pockethost.common.repository.ServerRepository
+import com.pockethost.common.util.FileUtils
 import com.pockethost.desktop.process.ProcessManager
 import kotlinx.coroutines.launch
 import java.io.File
@@ -287,13 +288,26 @@ fun ServerFilesTab(server: Server) {
     var fileContent by remember { mutableStateOf("") }
     var isEditing by remember { mutableStateOf(false) }
     var editedContent by remember { mutableStateOf("") }
+    var fileError by remember { mutableStateOf<String?>(null) }
+    val baseDir = remember(server.workingDirectory) { File(server.workingDirectory) }
 
     LaunchedEffect(currentPath) {
+        if (!FileUtils.validatePath(currentPath, baseDir)) {
+            fileError = "Access denied: path outside server directory"
+            currentPath = baseDir
+            return@LaunchedEffect
+        }
         files = currentPath.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
+        fileError = null
     }
 
     LaunchedEffect(selectedFile) {
         selectedFile?.let { file ->
+            if (!FileUtils.validatePath(file, baseDir)) {
+                fileContent = "Access denied: path outside server directory"
+                fileError = "Access denied"
+                return@let
+            }
             if (file.isFile) {
                 try {
                     if (file.length() > 1024 * 1024) {
@@ -330,6 +344,7 @@ fun ServerFilesTab(server: Server) {
                     }
                 }
                 HorizontalDivider()
+                fileError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
                 LazyColumn(Modifier.fillMaxSize()) {
                     if (currentPath.absolutePath != File(server.workingDirectory).absolutePath) {
                         item {
@@ -343,6 +358,10 @@ fun ServerFilesTab(server: Server) {
                             size = if (file.isFile) formatFileSize(file.length()) else "",
                             selected = file == selectedFile,
                             onClick = {
+                                if (!FileUtils.validatePath(file, baseDir)) {
+                                    fileError = "Access denied: ${file.name}"
+                                    return@FileListItem
+                                }
                                 if (file.isDirectory) {
                                     currentPath = file
                                     selectedFile = null
@@ -436,6 +455,10 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
     val repo = remember { ServerRepository.instance }
     val scope = rememberCoroutineScope()
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val serverDir = remember(server.workingDirectory) { File(server.workingDirectory) }
+    var isOffline by remember(server.id) { mutableStateOf(com.pockethost.desktop.util.ServerPropertiesManager.isOfflineMode(serverDir)) }
+    var renderDistance by remember(server.id) { mutableStateOf(com.pockethost.desktop.util.ServerPropertiesManager.getRenderDistance(serverDir)) }
+    var statusMsg by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(Modifier.fillMaxWidth()) {
@@ -446,6 +469,59 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
                 InfoRow("Port", server.port.toString())
                 InfoRow("Status", server.status.name)
                 InfoRow("Auto Start", if (server.autoStart) "Enabled" else "Disabled")
+            }
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Офлайн режим / Піратські акаунти", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Офлайн режим", style = MaterialTheme.typography.bodyMedium)
+                        Text("online-mode=${if (isOffline) "false" else "true"} • без перевірки Mojang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = isOffline, onCheckedChange = { offline ->
+                        isOffline = offline
+                        try {
+                            com.pockethost.desktop.util.ServerPropertiesManager.setOfflineMode(serverDir, offline)
+                            statusMsg = if (offline) "Увімкнено офлайн режим (online-mode=false)" else "Вимкнено офлайн режим (online-mode=true)"
+                        } catch (e: Exception) { statusMsg = "Помилка: ${e.message}" }
+                    })
+                }
+                statusMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                Text("Зберігається в server.properties кожного сервера. UUID генерується автоматично через UUID.randomUUID(). Застосується при наступному старті.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Render Distance (промальовка чанків)", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        renderDistance = 8
+                        com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 8)
+                        statusMsg = "Render distance = 8 (Низька)"
+                    }, colors = if (renderDistance == 8) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Низька") }
+                    Button(onClick = {
+                        renderDistance = 12
+                        com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 12)
+                        statusMsg = "Render distance = 12 (Середня)"
+                    }, colors = if (renderDistance == 12) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Середня") }
+                    Button(onClick = {
+                        renderDistance = 16
+                        com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 16)
+                        statusMsg = "Render distance = 16 (Висока)"
+                    }, colors = if (renderDistance == 16) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Висока") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(value = renderDistance.toFloat(), onValueChange = { renderDistance = it.toInt() }, onValueChangeFinished = {
+                        com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, renderDistance)
+                        statusMsg = "Render distance = $renderDistance"
+                    }, valueRange = 2f..32f, steps = 29, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(12.dp))
+                    Text("$renderDistance чанків", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text("view-distance=$renderDistance (2-32, крок 1). Записується в server.properties, застосовується при наступному старті.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Card(Modifier.fillMaxWidth()) {
