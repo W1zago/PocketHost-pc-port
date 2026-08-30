@@ -11,7 +11,7 @@ class JavaManagerTest {
         assertEquals(17, JavaManager.requiredJavaForMinecraft("1.18.2"))
         assertEquals(16, JavaManager.requiredJavaForMinecraft("1.17.1"))
         assertEquals(8, JavaManager.requiredJavaForMinecraft("1.16.5"))
-        assertEquals(17, JavaManager.requiredJavaForMinecraft(null))
+        assertEquals(21, JavaManager.requiredJavaForMinecraft(null))
     }
 
     @Test
