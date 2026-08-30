@@ -27,7 +27,8 @@ import java.io.File
 fun ServerListScreen(
     onServerSelected: (Server) -> Unit,
     onCreateServer: () -> Unit,
-    selectedServerId: String? = null
+    selectedServerId: String? = null,
+    onError: (String) -> Unit = {}
 ) {
     val repository = remember { ServerRepository.instance }
     val servers by repository.getAllServers().collectAsState(emptyList())
@@ -53,7 +54,7 @@ fun ServerListScreen(
                         Text("+ New")
                     }
                 }
-                Divider()
+                HorizontalDivider()
                 if (servers.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -74,13 +75,17 @@ fun ServerListScreen(
                                 onStart = {
                                     scope.launch {
                                         try {
-                                            startServer(server)
-                                        } catch (e: Exception) { e.printStackTrace() }
+                                            val err = startServer(server)
+                                            if (err != null) onError(err)
+                                        } catch (e: Exception) { e.printStackTrace(); onError(e.message ?: "Start failed") }
                                     }
                                 },
                                 onStop = {
                                     scope.launch {
-                                        try { stopServer(server) } catch (e: Exception) { e.printStackTrace() }
+                                        try {
+                                            val err = stopServer(server)
+                                            if (err != null) onError(err)
+                                        } catch (e: Exception) { e.printStackTrace(); onError(e.message ?: "Stop failed") }
                                     }
                                 }
                             )
@@ -95,9 +100,15 @@ fun ServerListScreen(
             val selected = servers.find { it.id == selectedServerId }
             if (selected != null) {
                 ServerPreview(selected, onStart = {
-                    scope.launch { startServer(selected) }
+                    scope.launch {
+                        val err = startServer(selected)
+                        if (err != null) onError(err)
+                    }
                 }, onStop = {
-                    scope.launch { stopServer(selected) }
+                    scope.launch {
+                        val err = stopServer(selected)
+                        if (err != null) onError(err)
+                    }
                 }, onOpen = { onServerSelected(selected) })
             } else {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -235,18 +246,31 @@ fun InfoRow(label: String, value: String) {
     }
 }
 
-// Helpers to control server
-suspend fun startServer(server: Server) {
+// Helpers to control server - returns error message or null on success
+suspend fun startServer(server: Server): String? {
     val repo = ServerRepository.instance
+    if (com.pockethost.desktop.process.ProcessManager.isProcessAlive(server.id)) {
+        val msg = "Server already running (PID=${com.pockethost.desktop.process.ProcessManager.getProcessInfo(server.id)?.pid}) - stop it first"
+        repo.appendLog(server.id, "[PocketHost] $msg")
+        return msg
+    }
+    // Check port still free (another app may have taken it)
+    if (!com.pockethost.common.util.NetworkUtils.isPortAvailable(server.port)) {
+        val msg = "Port ${server.port} already in use - stop other server or change port in server.properties"
+        repo.appendLog(server.id, "[PocketHost] $msg")
+        repo.updateServerStatus(server.id, ServerStatus.ERROR)
+        return msg
+    }
     val provisioner = com.pockethost.desktop.minecraft.MinecraftServerManager()
     // Validate java
     val version = server.config.minecraftVersion
     val required = com.pockethost.desktop.java.JavaManager.requiredJavaForMinecraft(version)
     val java = com.pockethost.desktop.java.JavaManager.ensureJava(required) { msg -> println(msg) }
     if (java == null) {
-        repo.appendLog(server.id, "[PocketHost] Failed to ensure Java $required")
+        val msg = "Failed to ensure Java $required - check internet or install manually"
+        repo.appendLog(server.id, "[PocketHost] $msg")
         repo.updateServerStatus(server.id, ServerStatus.ERROR)
-        return
+        return msg
     }
     repo.updateServerStatus(server.id, ServerStatus.STARTING)
     repo.appendLog(server.id, "[PocketHost] Starting server ${server.name} with Java ${java.path}")
@@ -256,9 +280,10 @@ suspend fun startServer(server: Server) {
         kotlinx.coroutines.runBlocking { repo.appendLog(server.id, "[Provision] $msg") }
     }
     if (!ok) {
+        val msg = "Provision failed - check logs and internet"
         repo.updateServerStatus(server.id, ServerStatus.ERROR)
-        repo.appendLog(server.id, "[PocketHost] Provision failed")
-        return
+        repo.appendLog(server.id, "[PocketHost] $msg")
+        return msg
     }
 
     // Determine jar
@@ -266,9 +291,10 @@ suspend fun startServer(server: Server) {
     var jarFile = File(dir, jarName)
     if (!jarFile.exists()) jarFile = File(dir, "server.jar")
     if (!jarFile.exists()) {
-        repo.appendLog(server.id, "[PocketHost] JAR not found: $jarName")
+        val msg = "JAR not found: $jarName - download failed or manual install required"
+        repo.appendLog(server.id, "[PocketHost] $msg")
         repo.updateServerStatus(server.id, ServerStatus.ERROR)
-        return
+        return msg
     }
 
     val command = mutableListOf<String>()
@@ -297,27 +323,41 @@ suspend fun startServer(server: Server) {
         }
     )
     if (process == null) {
+        val msg = "Failed to start process - check Java and server files"
         repo.updateServerStatus(server.id, ServerStatus.ERROR)
-        repo.appendLog(server.id, "[PocketHost] Failed to start process")
+        repo.appendLog(server.id, "[PocketHost] $msg")
+        return msg
     } else {
         repo.updateServerPid(server.id, process.pid)
         repo.updateServerStatus(server.id, ServerStatus.RUNNING)
         repo.appendLog(server.id, "[PocketHost] Server started PID=${process.pid}")
+        return null
     }
 }
 
-suspend fun stopServer(server: Server) {
+suspend fun stopServer(server: Server): String? {
     val repo = ServerRepository.instance
     repo.updateServerStatus(server.id, ServerStatus.STOPPING)
     repo.appendLog(server.id, "[PocketHost] Stopping server...")
     val ok = com.pockethost.desktop.process.ProcessManager.stopProcess(server.id, graceful = true)
     if (!ok) {
-        repo.appendLog(server.id, "[PocketHost] No running process found")
+        val msg = "No running process found"
+        repo.appendLog(server.id, "[PocketHost] $msg")
         repo.updateServerStatus(server.id, ServerStatus.STOPPED)
+        return msg
     }
-    // Wait a bit and force
-    kotlinx.coroutines.delay(2000)
-    if (!com.pockethost.desktop.process.ProcessManager.isProcessAlive(server.id)) {
-        repo.updateServerStatus(server.id, ServerStatus.STOPPED)
+    // Wait until process actually exits (up to 15s), then force
+    var waited = 0
+    while (waited < 15000 && com.pockethost.desktop.process.ProcessManager.isProcessAlive(server.id)) {
+        kotlinx.coroutines.delay(500)
+        waited += 500
     }
+    if (com.pockethost.desktop.process.ProcessManager.isProcessAlive(server.id)) {
+        repo.appendLog(server.id, "[PocketHost] Server didn't stop gracefully, forcing...")
+        com.pockethost.desktop.process.ProcessManager.stopProcess(server.id, graceful = false)
+        kotlinx.coroutines.delay(2000)
+    }
+    repo.updateServerStatus(server.id, ServerStatus.STOPPED)
+    repo.appendLog(server.id, "[PocketHost] Server stopped")
+    return null
 }

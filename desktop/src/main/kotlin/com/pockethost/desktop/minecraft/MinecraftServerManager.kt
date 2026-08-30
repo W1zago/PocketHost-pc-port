@@ -27,17 +27,32 @@ class MinecraftServerManager {
         port: Int = 25565,
         maxMemory: Int = 2048,
         minMemory: Int = 1024,
+        customDir: String? = null,
         onProgress: (String) -> Unit = {}
     ): Server? = withContext(Dispatchers.IO) {
         try {
-            val serverDir = File(serversDir, name)
+            val serverDir = if (!customDir.isNullOrBlank()) File(customDir) else File(serversDir, name)
+            if (serverDir.exists() && serverDir.listFiles()?.isNotEmpty() == true) {
+                onProgress("Warning: Directory ${serverDir.absolutePath} already exists and not empty")
+            }
             serverDir.mkdirs()
+            if (!serverDir.exists() || !serverDir.canWrite()) {
+                onProgress("ERROR: Cannot write to ${serverDir.absolutePath} - check permissions/disk")
+                return@withContext null
+            }
 
             val availablePort = if (NetworkUtils.isPortAvailable(port)) port else NetworkUtils.getAvailablePort(port)
             if (availablePort == -1) {
                 onProgress("ERROR: No available port")
                 return@withContext null
             }
+            // P3: attempt firewall rule (best-effort, no Admin = logged)
+            try {
+                val fwOk = com.pockethost.desktop.network.FirewallManager.addFirewallRule(availablePort, "PocketHost-$name")
+                if (fwOk) onProgress("Firewall rule added for port $availablePort")
+                else onProgress("Firewall rule not added (run as Admin to allow port $availablePort)")
+                com.pockethost.desktop.util.AppLogger.info("Firewall check for $name port $availablePort: $fwOk")
+            } catch (e: Exception) { onProgress("Firewall check failed: ${e.message}") }
 
             val jarName = getJarName(loader)
             val jarFile = File(serverDir, jarName)
@@ -67,9 +82,7 @@ class MinecraftServerManager {
             val effectiveJar = if (File(serverDir, jarName).exists()) jarName else if (genericJar.exists()) "server.jar" else jarName
             createStartScript(serverDir, effectiveJar, maxMemory, minMemory)
 
-            val javaRequired = JavaManager.requiredJavaForMinecraft(version)
             val javaPath = JavaManager.findJava()?.path ?: "java"
-            // Ensure java compatible if needed TODO auto-download handled elsewhere
 
             val config = ServerConfig(
                 startCommand = "$javaPath -Xmx${maxMemory}M -Xms${minMemory}M -XX:+UseG1GC -jar $effectiveJar nogui",
@@ -288,28 +301,34 @@ class MinecraftServerManager {
 
     private fun getPaperUrl(version: String, log: ((String) -> Unit)?): String? {
         return try {
-            log?.invoke("Resolving Paper $version ...")
-            val verJson = httpGet("https://api.papermc.io/v2/projects/paper/versions/$version")
-            if (verJson != null) {
-                val obj = JSONObject(verJson)
-                val builds = obj.getJSONArray("builds")
-                if (builds.length() > 0) {
-                    val latestBuild = builds.getInt(builds.length() - 1)
-                    log?.invoke("Latest Paper build: $latestBuild")
-                    val buildJson = httpGet("https://api.papermc.io/v2/projects/paper/versions/$version/builds/$latestBuild")
-                    if (buildJson != null) {
-                        val buildObj = JSONObject(buildJson)
-                        val downloads = buildObj.getJSONObject("downloads")
-                        val app = downloads.getJSONObject("application")
-                        val name = app.getString("name")
-                        val url = "https://api.papermc.io/v2/projects/paper/versions/$version/builds/$latestBuild/downloads/$name"
-                        log?.invoke("Paper URL: $url")
-                        return url
-                    }
-                }
+            log?.invoke("Resolving Paper $version via fill.papermc.io...")
+            val buildsJson = httpGet("https://fill.papermc.io/v3/projects/paper/versions/$version/builds")
+            if (buildsJson == null) {
+                log?.invoke("Paper version $version not found on fill.papermc.io (try Vanilla or check version exists).")
+                return null
             }
-            log?.invoke("Trying fallback Paper URL")
-            "https://api.papermc.io/v2/projects/paper/versions/$version/builds/latest/downloads/paper-$version.jar"
+            val arr = JSONArray(buildsJson)
+            if (arr.length() == 0) {
+                log?.invoke("No Paper builds for $version")
+                return null
+            }
+            // Prefer STABLE channel
+            var target: JSONObject? = null
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                if (obj.optString("channel") == "STABLE") { target = obj; break }
+            }
+            if (target == null) target = arr.getJSONObject(0)
+            val downloads = target!!.getJSONObject("downloads")
+            // server:default is preferred for Paper
+            val dl = downloads.optJSONObject("server:default") ?: downloads.optJSONObject("server") ?: downloads.optJSONObject("application")
+            val url = dl?.optString("url")
+            if (!url.isNullOrEmpty()) {
+                log?.invoke("Paper URL: $url")
+                return url
+            }
+            log?.invoke("No stable download URL for Paper $version")
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             log?.invoke("Paper resolve failed: ${e.message}")
@@ -379,7 +398,7 @@ class MinecraftServerManager {
             conn.requestMethod = "GET"
             conn.connectTimeout = 30000
             conn.readTimeout = 30000
-            conn.setRequestProperty("User-Agent", "PocketHost/1.0")
+            conn.setRequestProperty("User-Agent", "PocketHost/1.0.0 (https://github.com/pockethost)")
             conn.instanceFollowRedirects = false
             try {
                 val code = conn.responseCode
@@ -406,7 +425,7 @@ class MinecraftServerManager {
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30000
             conn.readTimeout = 90000
-            conn.setRequestProperty("User-Agent", "PocketHost/1.0")
+            conn.setRequestProperty("User-Agent", "PocketHost/1.0.0 (https://github.com/pockethost)")
             conn.instanceFollowRedirects = false
             val code = conn.responseCode
             if (code in 300..399) {
@@ -509,10 +528,26 @@ class MinecraftServerManager {
                     versions
                 }
                 MinecraftLoader.PAPER -> {
-                    val json = httpGet("https://api.papermc.io/v2/projects/paper") ?: return@withContext listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4")
-                    val obj = JSONObject(json)
-                    val arr = obj.getJSONArray("versions")
-                    (0 until arr.length()).map { arr.getString(it) }.reversed()
+                    // Use fill.papermc.io v3
+                    val json = httpGet("https://fill.papermc.io/v3/projects/paper") ?: return@withContext listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4")
+                    try {
+                        val obj = JSONObject(json)
+                        val versionsObj = obj.getJSONObject("versions")
+                        val allVersions = mutableListOf<String>()
+                        for (key in versionsObj.keys()) {
+                            val arr = versionsObj.getJSONArray(key)
+                            for (i in 0 until arr.length()) allVersions.add(arr.getString(i))
+                        }
+                        // Distinct and sort descending (simple)
+                        allVersions.distinct().sortedWith(compareByDescending { it }).take(30).ifEmpty { listOf("1.21.4", "1.21.1") }
+                    } catch (e: Exception) {
+                        // Fallback: try old format
+                        try {
+                            val obj = JSONObject(json)
+                            val arr = obj.getJSONArray("versions")
+                            (0 until arr.length()).map { arr.getString(it) }.reversed()
+                        } catch (_: Exception) { listOf("1.21.4", "1.21.1", "1.20.4") }
+                    }
                 }
                 MinecraftLoader.PURPUR -> {
                     val json = httpGet("https://api.purpurmc.org/v2/purpur") ?: return@withContext listOf("1.21.4", "1.21.1")

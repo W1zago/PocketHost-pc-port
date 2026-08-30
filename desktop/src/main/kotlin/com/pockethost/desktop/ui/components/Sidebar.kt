@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.pockethost.common.i18n.Language
+import com.pockethost.common.i18n.Strings
 import com.pockethost.desktop.ui.Screen
 
 @Composable
@@ -34,7 +36,7 @@ fun Sidebar(
                 modifier = Modifier.padding(bottom = 24.dp)
             )
             Text(
-                text = "Minecraft Server Manager",
+                text = Strings.tr("app.subtitle"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 24.dp)
@@ -42,13 +44,13 @@ fun Sidebar(
 
             SidebarItem(
                 icon = Icons.Default.Storage,
-                label = "Servers",
+                label = Strings.tr("nav.servers"),
                 selected = currentScreen is Screen.ServerList || currentScreen is Screen.ServerDetail,
                 onClick = { onScreenSelected(Screen.ServerList) }
             )
             SidebarItem(
                 icon = Icons.Default.Add,
-                label = "New Server",
+                label = Strings.tr("nav.newServer"),
                 selected = currentScreen is Screen.CreateServer,
                 onClick = { onScreenSelected(Screen.CreateServer) }
             )
@@ -57,7 +59,7 @@ fun Sidebar(
 
             SidebarItem(
                 icon = Icons.Default.Settings,
-                label = "Settings",
+                label = Strings.tr("nav.settings"),
                 selected = currentScreen is Screen.Settings,
                 onClick = { onScreenSelected(Screen.Settings) }
             )

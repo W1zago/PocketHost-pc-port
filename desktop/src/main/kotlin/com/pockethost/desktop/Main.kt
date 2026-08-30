@@ -16,6 +16,6 @@ fun main() = application {
         state = windowState
     ) {
         window.minimumSize = Dimension(1024, 600)
-        App(onExit = ::exitApplication)
+        App()
     }
 }

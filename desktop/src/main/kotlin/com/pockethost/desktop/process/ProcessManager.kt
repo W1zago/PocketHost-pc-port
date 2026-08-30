@@ -1,5 +1,6 @@
 package com.pockethost.desktop.process
 
+import com.pockethost.desktop.util.AppLogger
 import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -44,8 +45,10 @@ object ProcessManager {
             environment.forEach { (k, v) -> env[k] = v }
 
             workingDir.mkdirs()
+            AppLogger.info("Starting process $serverId: ${command.joinToString(" ")} in $workingDir")
             val process = processBuilder.start()
             val pid = process.pid()
+            AppLogger.info("Process $serverId PID=$pid started")
 
             val info = ProcessInfo(
                 pid = pid,
@@ -143,22 +146,32 @@ object ProcessManager {
 
     private fun getWindowsProcessStats(pid: Long): ProcessStats? {
         return try {
-            // Use powershell to get WorkingSet and CPU
+            // Get threads count via (Get-Process -Id pid).Threads.Count, also CPU/WorkingSet
             val process = ProcessBuilder(
                 "powershell", "-NoProfile", "-Command",
-                "Get-Process -Id $pid | Select-Object CPU,WorkingSet64 | ConvertTo-Json"
+                "\$p=Get-Process -Id $pid; \$threads=\$p.Threads.Count; \$obj=[PSCustomObject]@{CPU=\$p.CPU;WorkingSet64=\$p.WorkingSet64;Threads=\$threads}; \$obj | ConvertTo-Json -Compress"
             ).start()
             val output = process.inputStream.bufferedReader().readText()
+            process.errorStream.bufferedReader().readText() // drain
             process.waitFor()
             if (output.isBlank()) return null
-            // Simple parse: look for numbers
-            val cpuRegex = Regex("\"CPU\"\\s*:\\s*([0-9.]+)")
+            val cpuRegex = Regex("\"CPU\"\\s*:\\s*(null|[0-9.]+)")
             val memRegex = Regex("\"WorkingSet64\"\\s*:\\s*(\\d+)")
-            val cpu = cpuRegex.find(output)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+            val thrRegex = Regex("\"Threads\"\\s*:\\s*(\\d+)")
+            val cpuStr = cpuRegex.find(output)?.groupValues?.get(1)
+            val cpu = if (cpuStr == null || cpuStr == "null") 0f else cpuStr.toFloatOrNull() ?: 0f
             val mem = memRegex.find(output)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-            ProcessStats(cpuPercent = cpu, memoryBytes = mem, threadCount = 0)
+            val thr = thrRegex.find(output)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            ProcessStats(cpuPercent = cpu, memoryBytes = mem, threadCount = thr)
         } catch (e: Exception) {
-            null
+            // Fallback via wmic if powershell fails
+            try {
+                val p = ProcessBuilder("wmic", "process", "where", "processId=$pid", "get", "ThreadCount", "/format:list").start()
+                val out = p.inputStream.bufferedReader().readText()
+                p.waitFor()
+                val thr = Regex("ThreadCount=(\\d+)").find(out)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                ProcessStats(0f, 0L, thr)
+            } catch (_: Exception) { null }
         }
     }
 }

@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,7 +28,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
-fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: () -> Unit) {
+fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: () -> Unit, onError: (String) -> Unit = {}) {
     val repo = remember { ServerRepository.instance }
     val servers by repo.getAllServers().collectAsState(emptyList())
     val server = servers.find { it.id == serverId }
@@ -51,7 +53,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
         Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(server.name, style = MaterialTheme.typography.titleLarge)
@@ -64,19 +66,31 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (server.status) {
                             ServerStatus.STOPPED, ServerStatus.ERROR -> {
-                                Button(onClick = { scope.launch { startServer(server) } }) {
+                                Button(onClick = {
+                                    scope.launch {
+                                        val err = startServer(server)
+                                        if (err != null) onError(err)
+                                    }
+                                }) {
                                     Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start")
                                 }
                             }
                             ServerStatus.RUNNING -> {
-                                Button(onClick = { scope.launch { stopServer(server) } }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                                Button(onClick = {
+                                    scope.launch {
+                                        val err = stopServer(server)
+                                        if (err != null) onError(err)
+                                    }
+                                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                                     Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop")
                                 }
                                 OutlinedButton(onClick = {
                                     scope.launch {
-                                        stopServer(server)
+                                        val err1 = stopServer(server)
+                                        if (err1 != null) onError(err1)
                                         kotlinx.coroutines.delay(3000)
-                                        startServer(server)
+                                        val err2 = startServer(server)
+                                        if (err2 != null) onError(err2)
                                     }
                                 }) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Restart") }
                             }
@@ -108,7 +122,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
 fun ServerOverviewTab(server: Server) {
     val stats = remember(server.id) { ProcessManager.getProcessStats(server.id) }
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp).fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Card(Modifier.fillMaxWidth()) {
@@ -188,26 +202,48 @@ fun ServerConsoleTab(server: Server) {
     }
 
     Column(Modifier.fillMaxSize()) {
+        // Header with Copy All
+        Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF2D2D2D)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${logs.size} lines", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        try {
+                            val text = logs.joinToString("\n")
+                            val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                            clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+                        } catch (_: Exception) {}
+                    }, enabled = logs.isNotEmpty()) { Text("Copy All", style = MaterialTheme.typography.labelSmall) }
+                    OutlinedButton(onClick = {
+                        try {
+                            val file = java.io.File(System.getProperty("java.io.tmpdir"), "pockethost-${server.id}.log")
+                            file.writeText(logs.joinToString("\n"))
+                            java.awt.Desktop.getDesktop().open(file)
+                        } catch (_: Exception) {}
+                    }, enabled = logs.isNotEmpty()) { Text("Save", style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
         Surface(modifier = Modifier.weight(1f).fillMaxWidth(), color = Color(0xFF1E1E1E)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                items(logs) { log ->
-                    SelectionContainer {
+            SelectionContainer {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    items(logs) { log ->
                         Text(
                             text = log,
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = Color(0xFFCCCCCC)),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                }
-                if (logs.isEmpty()) {
-                    item {
-                        Text("No logs yet. Start the server to see output.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    if (logs.isEmpty()) {
+                        item {
+                            Text("No logs yet. Start the server to see output.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
         }
         if (server.status == ServerStatus.RUNNING) {
-            Divider()
+            HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = commandInput,
@@ -224,7 +260,7 @@ fun ServerConsoleTab(server: Server) {
                         commandInput = ""
                     }
                 }, enabled = commandInput.isNotBlank()) {
-                    Icon(Icons.Default.Send, contentDescription = "Send")
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -251,7 +287,6 @@ fun ServerFilesTab(server: Server) {
     var fileContent by remember { mutableStateOf("") }
     var isEditing by remember { mutableStateOf(false) }
     var editedContent by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(currentPath) {
         files = currentPath.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
@@ -294,7 +329,7 @@ fun ServerFilesTab(server: Server) {
                         }) { Icon(Icons.Default.FolderOpen, contentDescription = "Open in Explorer") }
                     }
                 }
-                Divider()
+                HorizontalDivider()
                 LazyColumn(Modifier.fillMaxSize()) {
                     if (currentPath.absolutePath != File(server.workingDirectory).absolutePath) {
                         item {
@@ -358,7 +393,7 @@ fun ServerFilesTab(server: Server) {
                             }
                         }
                     }
-                    Divider()
+                    HorizontalDivider()
                     if (isEditing) {
                         OutlinedTextField(
                             value = editedContent,
@@ -370,7 +405,7 @@ fun ServerFilesTab(server: Server) {
                         SelectionContainer {
                             Text(
                                 text = fileContent,
-                                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+                                modifier = Modifier.verticalScroll(rememberScrollState()).padding(12.dp).fillMaxWidth(),
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                             )
                         }
@@ -402,7 +437,7 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
     val scope = rememberCoroutineScope()
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text("General", style = MaterialTheme.typography.titleMedium)

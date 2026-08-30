@@ -57,7 +57,7 @@ object JavaManager {
         javaHome.listFiles()?.forEach { dir ->
             if (dir.isDirectory) {
                 val javaExec = findJavaInDirectory(dir) ?: getJavaExecutable(dir)
-                if (javaExec != null && javaExec.exists()) {
+                if (javaExec.exists()) {
                     val version = getJavaVersion(javaExec)
                     if (version != null) {
                         return JavaRuntime(javaExec.absolutePath, version.major, version.full, version.vendor, JavaSource.BUNDLED)
@@ -83,7 +83,7 @@ object JavaManager {
         val downloadedDir = File(javaHome, "jre-$requiredVersion")
         if (downloadedDir.exists()) {
             val javaExec = findJavaInDirectory(downloadedDir) ?: getJavaExecutable(downloadedDir)
-            if (javaExec != null && javaExec.exists()) {
+            if (javaExec.exists()) {
                 val version = getJavaVersion(javaExec)
                 if (version != null && version.major >= requiredVersion) {
                     onProgress("Using downloaded Java ${version.major}")

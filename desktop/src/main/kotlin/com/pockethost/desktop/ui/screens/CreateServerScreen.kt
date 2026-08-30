@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) {
+fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, onError: (String) -> Unit = {}) {
     val repo = remember { ServerRepository.instance }
     val manager = remember { MinecraftServerManager() }
     val scope = rememberCoroutineScope()
@@ -30,9 +30,17 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
     var port by remember { mutableStateOf("25565") }
     var maxMemory by remember { mutableStateOf("2048") }
     var minMemory by remember { mutableStateOf("1024") }
+    var customDir by remember { mutableStateOf("") }
     var isCreating by remember { mutableStateOf(false) }
     var progressLog by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+
+    fun updateCustomDirFromName() {
+        if (customDir.isBlank() || customDir.startsWith(com.pockethost.common.util.AppPaths.serversDir.absolutePath)) {
+            customDir = java.io.File(com.pockethost.common.util.AppPaths.serversDir, if (name.isBlank()) "my-server" else name).absolutePath
+        }
+    }
+    LaunchedEffect(name) { if (name.isNotBlank()) updateCustomDirFromName() }
 
     LaunchedEffect(loader) {
         scope.launch {
@@ -57,6 +65,14 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
         val max = maxMemory.toIntOrNull()
         val min = minMemory.toIntOrNull()
         if (max == null || min == null || max < 512 || min < 256 || min > max) { error = "Invalid memory values"; return false }
+        if (customDir.isBlank()) { error = "Choose server directory"; return false }
+        val dirFile = java.io.File(customDir)
+        if (dirFile.exists() && !dirFile.isDirectory) { error = "Path exists and is not a directory"; return false }
+        // Check disk writable by trying to create
+        try {
+            val testParent = dirFile.parentFile ?: dirFile
+            if (!testParent.exists() && !testParent.mkdirs()) { error = "Cannot create directory ${testParent.absolutePath}"; return false }
+        } catch (e: Exception) { error = "Invalid path: ${e.message}"; return false }
         error = null; return true
     }
 
@@ -64,13 +80,13 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
         Text("Create New Server", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
         Text("Step $step of 3", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LinearProgressIndicator(progress = step / 3f, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+        LinearProgressIndicator(progress = { step / 3f }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         Spacer(Modifier.height(16.dp))
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (step) {
                 1 -> {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Server Type & Name", style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server Name") }, placeholder = { Text("my-minecraft-server") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Text("Choose server software:", style = MaterialTheme.typography.bodyMedium)
@@ -108,7 +124,7 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                     }
                 }
                 2 -> {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Configuration", style = MaterialTheme.typography.titleMedium)
                         // Version dropdown
                         var expanded by remember { mutableStateOf(false) }
@@ -133,11 +149,36 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                             OutlinedTextField(value = maxMemory, onValueChange = { maxMemory = it.filter { c -> c.isDigit() } }, label = { Text("Max Memory (MB)") }, modifier = Modifier.weight(1f), singleLine = true)
                         }
                         Text("Available: ${availableVersions.size} versions for $loader", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // User-chosen directory
+                        Text("Server directory (choose disk/folder):", style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(value = customDir, onValueChange = { customDir = it }, label = { Text("Path") }, modifier = Modifier.weight(1f), singleLine = true)
+                            Button(onClick = {
+                                try {
+                                    val chooser = javax.swing.JFileChooser(customDir.ifBlank { com.pockethost.common.util.AppPaths.serversDir.absolutePath })
+                                    chooser.fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+                                    chooser.dialogTitle = "Choose server folder (e.g. D:\\Servers\\${if (name.isBlank()) "my-server" else name})"
+                                    if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                        val sel = chooser.selectedFile
+                                        if (sel != null) {
+                                            // If user picked existing folder, append name if not already
+                                            val target = if (sel.absolutePath.endsWith(name) || name.isBlank()) sel else java.io.File(sel, name)
+                                            customDir = target.absolutePath
+                                        }
+                                    }
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }) { Text("Browse") }
+                        }
+                        Text("Default: ${com.pockethost.common.util.AppPaths.serversDir.absolutePath}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (customDir.isNotBlank()) {
+                            val free = try { java.io.File(customDir).let { if (it.exists()) it.freeSpace / 1024 / 1024 / 1024 else it.parentFile?.freeSpace?.let { s -> s / 1024 / 1024 / 1024 } ?: 0 } } catch (_: Exception) { 0 }
+                            Text("Free space: ${free} GB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
                 3 -> {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Creating Server", style = MaterialTheme.typography.titleMedium)
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp)) {
@@ -148,6 +189,7 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                                 Text("Version: $version")
                                 Text("Port: $port")
                                 Text("Memory: $minMemory - $maxMemory MB")
+                                Text("Directory: $customDir", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         if (isCreating) {
@@ -159,7 +201,7 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                                         Text("Creating... please wait")
                                     }
                                     Spacer(Modifier.height(12.dp))
-                                    Text(progressLog, style = MaterialTheme.typography.bodySmall, modifier = Modifier.verticalScroll(rememberScrollState()))
+                                    Text(progressLog, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         } else {
@@ -200,7 +242,8 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                                         loader = loader,
                                         port = port.toInt(),
                                         maxMemory = maxMemory.toInt(),
-                                        minMemory = minMemory.toInt()
+                                        minMemory = minMemory.toInt(),
+                                        customDir = customDir.ifBlank { null }
                                     ) { msg ->
                                         progressLog += msg + "\n"
                                     }
@@ -210,14 +253,18 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit) 
                                         isCreating = false
                                         onServerCreated(server)
                                     } else {
-                                        error = "Failed to create server. Check logs."
+                                        val msg = "Failed to create server. Check logs - try Vanilla/Paper."
+                                        error = msg
                                         progressLog += "ERROR: Failed\n"
                                         isCreating = false
+                                        onError(msg)
                                     }
                                 } catch (e: Exception) {
-                                    error = e.message
-                                    progressLog += "Exception: ${e.message}\n"
+                                    val msg = e.message ?: "Unknown error"
+                                    error = msg
+                                    progressLog += "Exception: $msg\n"
                                     isCreating = false
+                                    onError(msg)
                                 }
                             }
                         }) { Text("Create Server") }
