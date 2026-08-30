@@ -538,8 +538,10 @@ class MinecraftServerManager {
                             val arr = versionsObj.getJSONArray(key)
                             for (i in 0 until arr.length()) allVersions.add(arr.getString(i))
                         }
-                        // Distinct and sort descending (simple)
-                        allVersions.distinct().sortedWith(compareByDescending { it }).take(30).ifEmpty { listOf("1.21.4", "1.21.1") }
+                        // Filter to actual releases (1.x) and sort descending, keep snapshots at end
+                        val releases = allVersions.filter { it.startsWith("1.") }.distinct()
+                        val snapshots = allVersions.filterNot { it.startsWith("1.") }.distinct()
+                        (releases + snapshots).take(30).ifEmpty { listOf("1.21.4", "1.21.1") }
                     } catch (e: Exception) {
                         // Fallback: try old format
                         try {
@@ -556,12 +558,44 @@ class MinecraftServerManager {
                     (0 until arr.length()).map { arr.getString(it) }.reversed()
                 }
                 MinecraftLoader.FABRIC -> {
-                    // Fabric uses same versions as vanilla
-                    val json = httpGet("https://meta.fabricmc.net/v2/versions/game") ?: return@withContext listOf("1.21.4", "1.21.1")
+                    val json = httpGet("https://meta.fabricmc.net/v2/versions/game") ?: return@withContext listOf("1.21.4", "1.21.1", "1.20.4")
                     val arr = JSONArray(json)
-                    (0 until minOf(arr.length(), 20)).map { arr.getJSONObject(it).getString("version") }
+                    val stableVersions = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        if (o.optBoolean("stable", true)) {
+                            stableVersions.add(o.getString("version"))
+                        }
+                        if (stableVersions.size >= 30) break
+                    }
+                    // If no stable found (e.g. API changed), fallback to vanilla releases
+                    if (stableVersions.isEmpty()) {
+                        val vanillaJson = httpGet("https://piston-meta.mojang.com/mc/game/version_manifest.json")
+                        if (vanillaJson != null) {
+                            val vObj = JSONObject(vanillaJson)
+                            val vArr = vObj.getJSONArray("versions")
+                            for (i in 0 until minOf(vArr.length(), 80)) {
+                                val v = vArr.getJSONObject(i)
+                                if (v.getString("type") == "release") stableVersions.add(v.getString("id"))
+                                if (stableVersions.size >= 30) break
+                            }
+                        }
+                    }
+                    stableVersions.ifEmpty { listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4", "1.18.2") }
                 }
-                else -> listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4", "1.18.2", "1.16.5")
+                MinecraftLoader.FORGE, MinecraftLoader.NEOFORGE, MinecraftLoader.SPIGOT, MinecraftLoader.BUKKIT -> {
+                    // Use Mojang releases for all Forge-based - supports same MC versions
+                    val json = httpGet("https://piston-meta.mojang.com/mc/game/version_manifest.json") ?: return@withContext listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4")
+                    val obj = JSONObject(json)
+                    val arr = obj.getJSONArray("versions")
+                    val versions = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        val v = arr.getJSONObject(i)
+                        if (v.getString("type") == "release") versions.add(v.getString("id"))
+                        if (versions.size >= 30) break
+                    }
+                    versions.ifEmpty { listOf("1.21.4", "1.21.1", "1.20.4", "1.19.4", "1.18.2", "1.16.5") }
+                }
             }
         } catch (e: Exception) {
             onProgress("Failed to fetch versions: ${e.message}")

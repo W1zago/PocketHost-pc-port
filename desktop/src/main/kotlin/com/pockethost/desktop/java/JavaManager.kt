@@ -274,13 +274,14 @@ object JavaManager {
     }
 
     fun requiredJavaForMinecraft(version: String?): Int {
-        if (version == null) return 17
+        if (version == null) return 21
+        // 26.x is new versioning (snapshot 26.2 maps to 1.21.4 libs but bundled with Java 25 class version 69)
         return when {
-            version.startsWith("1.21") || version.startsWith("1.20.5") || version.startsWith("1.20.6") -> 21
+            version.startsWith("26.") || version.startsWith("1.21") || version.startsWith("1.20.5") || version.startsWith("1.20.6") -> 21
             version.startsWith("1.20") || version.startsWith("1.19") || version.startsWith("1.18") -> 17
             version.startsWith("1.17") -> 16
             version.startsWith("1.16") -> 8
-            else -> 8
+            else -> 21 // default to 21 for unknown future versions (avoid 8 -> Java 17 fail for 26.x)
         }
     }
 }
