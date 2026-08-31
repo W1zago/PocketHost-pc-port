@@ -1,5 +1,6 @@
 package com.pockethost.desktop.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +14,7 @@ import com.pockethost.common.model.Server
 import com.pockethost.common.repository.ServerRepository
 import com.pockethost.common.util.NetworkUtils
 import com.pockethost.desktop.minecraft.MinecraftServerManager
+import com.pockethost.desktop.minecraft.VersionManifestManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,7 +47,8 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
     LaunchedEffect(name) { if (name.isNotBlank()) updateCustomDirFromName() }
 
     var versionEntries by remember { mutableStateOf<List<com.pockethost.desktop.minecraft.VersionEntry>>(emptyList()) }
-    var versionFilter by remember { mutableStateOf<com.pockethost.desktop.minecraft.VersionManifestManager.ManifestFilter>(com.pockethost.desktop.minecraft.VersionManifestManager.ManifestFilter.All) }
+    var versionFilter by remember { mutableStateOf<VersionManifestManager.ManifestFilter>(VersionManifestManager.ManifestFilter.All) }
+    var versionSearch by remember { mutableStateOf("") }
     var isLoadingVersions by remember { mutableStateOf(false) }
     var versionLoadMsg by remember { mutableStateOf("") }
 
@@ -53,24 +56,31 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
         isLoadingVersions = true
         versionLoadMsg = "Завантаження версій..."
         try {
+            // Always fetch full manifest from Mojang as source of truth — містить ВСІ версії (release/snapshot/alpha/beta)
+            val allEntries = VersionManifestManager.fetchAllVersions(forceRefresh) { msg -> versionLoadMsg = msg }
+            if (allEntries.isEmpty()) {
+                versionLoadMsg = "Не вдалося завантажити маніфест"
+                isLoadingVersions = false
+                return
+            }
+            versionEntries = allEntries
+
             if (loader == MinecraftLoader.VANILLA) {
-                val entries = com.pockethost.desktop.minecraft.VersionManifestManager.fetchAllVersions(forceRefresh) { msg -> versionLoadMsg = msg }
-                if (entries.isNotEmpty()) {
-                    versionEntries = entries
-                    val filtered = com.pockethost.desktop.minecraft.VersionManifestManager.getFiltered(entries, versionFilter)
-                    val strList = filtered.map { it.id }
-                    availableVersions = strList
-                    if (version !in strList && strList.isNotEmpty()) version = strList.first()
-                    versionLoadMsg = "Завантажено ${entries.size} версій"
-                } else {
-                    versionLoadMsg = "Не вдалося завантажити список"
-                }
+                // Vanilla: показуємо ВСІ типи, фільтр (All/Release/Snapshot/Alpha/Beta) працює
+                val filtered = VersionManifestManager.getFiltered(allEntries, versionFilter)
+                val strList = filtered.map { it.id }
+                availableVersions = strList
+                if (version !in strList && strList.isNotEmpty()) version = strList.first()
+                versionLoadMsg = "Завантажено ${allEntries.size} версій (фільтр: ${versionFilter.label}) — всього release/snapshot/alpha/beta"
             } else {
-                val versions = manager.fetchAvailableVersions(loader)
-                versionEntries = versions.map { com.pockethost.desktop.minecraft.VersionEntry(it, "release", "") }
-                availableVersions = versions
-                if (version !in versions && versions.isNotEmpty()) version = versions.first()
-                versionLoadMsg = "Завантажено ${versions.size} версій для $loader"
+                // For other loaders: fetch their supported versions, then filter manifest to only those (всі релізи, без ліміту 30/50)
+                val loaderVersions = manager.fetchAvailableVersions(loader)
+                val loaderSet = loaderVersions.toSet()
+                val filtered = allEntries.filter { it.id in loaderSet }
+                val strList = if (filtered.isNotEmpty()) filtered.map { it.id } else loaderVersions
+                availableVersions = strList
+                if (version !in strList && strList.isNotEmpty()) version = strList.first()
+                versionLoadMsg = "Завантажено ${strList.size} версій для $loader (з ${allEntries.size} всього в Mojang)"
             }
         } catch (e: Exception) {
             versionLoadMsg = "Помилка: ${e.message}"
@@ -83,12 +93,19 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
     }
     LaunchedEffect(versionFilter) {
         if (loader == MinecraftLoader.VANILLA && versionEntries.isNotEmpty()) {
-            val filtered = com.pockethost.desktop.minecraft.VersionManifestManager.getFiltered(versionEntries, versionFilter)
+            val filtered = VersionManifestManager.getFiltered(versionEntries, versionFilter)
             val strList = filtered.map { it.id }
             availableVersions = strList
             if (version !in strList && strList.isNotEmpty()) version = strList.first()
         }
     }
+
+    // Display list with search filter (не перезавантажує мережу)
+    val displayVersions = remember(availableVersions, versionSearch) {
+        if (versionSearch.isBlank()) availableVersions
+        else availableVersions.filter { it.contains(versionSearch.trim(), ignoreCase = true) }
+    }
+    val typeCounts = remember(versionEntries) { VersionManifestManager.countByType(versionEntries) }
 
     fun validateStep1(): Boolean {
         val nameError = com.pockethost.common.util.FileUtils.validateServerName(name)
@@ -163,42 +180,115 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                 2 -> {
                     Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Configuration", style = MaterialTheme.typography.titleMedium)
-                        // Version filter chips for Vanilla (Release/Snapshot/Alpha/Beta)
+                        // === Фільтр версій: ВСІ типи з Mojang (release/snapshot/old_alpha/old_beta) ===
+                        Text("Фільтр версій — Mojang manifest (всі типи)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (loader == MinecraftLoader.VANILLA) {
-                            Text("Фільтр версій (Mojang manifest v2 + fallback)", style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                com.pockethost.desktop.minecraft.VersionManifestManager.allFilters.forEach { f ->
-                                    FilterChip(selected = versionFilter == f, onClick = { versionFilter = f }, label = { Text(f.label, style = MaterialTheme.typography.labelSmall) })
+                            // Chips з лічильниками: Всі (800) | Release (120) | Snapshot (500) | Beta (...) | Alpha (...)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            ) {
+                                VersionManifestManager.allFilters.forEach { f ->
+                                    val count = when (f) {
+                                        is VersionManifestManager.ManifestFilter.All -> versionEntries.size
+                                        else -> typeCounts[f.typeValue] ?: 0
+                                    }
+                                    val label = if (count > 0) "${f.label} ($count)" else f.label
+                                    FilterChip(
+                                        selected = versionFilter == f,
+                                        onClick = { versionFilter = f },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
                                 }
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(versionLoadMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                                if (isLoadingVersions) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                OutlinedButton(onClick = { scope.launch { loadVersions(true) } }, enabled = !isLoadingVersions) { Text("Оновити", style = MaterialTheme.typography.labelSmall) }
-                            }
+                            // Пояснення
+                            Text(
+                                "Vanilla підтримує всі типи: релізи, снапшоти (напр. 24w14a), бети та альфи. Інші лоадери — тільки релізи.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         } else {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(versionLoadMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                                if (isLoadingVersions) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                OutlinedButton(onClick = { scope.launch { loadVersions(true) } }, enabled = !isLoadingVersions) { Text("Оновити") }
+                            // Для Paper/Fabric/Purpur/Forge etc — всі релізи без ліміту, снапшоти не підтримуються лоадером
+                            Text(
+                                "Для $loader доступні тільки релізи (${availableVersions.size}) — снапшоти не підтримуються цим лоадером. Вибери Vanilla для снапшотів.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            // Для не-ванілли теж показуємо chips неактивними для інформації
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            ) {
+                                VersionManifestManager.allFilters.forEach { f ->
+                                    val count = when (f) {
+                                        is VersionManifestManager.ManifestFilter.All -> versionEntries.size
+                                        else -> typeCounts[f.typeValue] ?: 0
+                                    }
+                                    val label = if (count > 0) "${f.label} ($count)" else f.label
+                                    FilterChip(
+                                        selected = false,
+                                        enabled = false,
+                                        onClick = {},
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
                             }
                         }
-                        // Version dropdown
+                        // Статус + оновити + пошук
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(versionLoadMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            if (isLoadingVersions) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            OutlinedButton(onClick = { scope.launch { loadVersions(true) } }, enabled = !isLoadingVersions) { Text("Оновити", style = MaterialTheme.typography.labelSmall) }
+                        }
+                        // Текстовий пошук по версіях (фільтрує локально без мережі)
+                        OutlinedTextField(
+                            value = versionSearch,
+                            onValueChange = { versionSearch = it },
+                            label = { Text("Пошук версії (напр. 1.21, 24w, 1.20.1)") },
+                            placeholder = { Text("Введи частину назви...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            trailingIcon = {
+                                if (versionSearch.isNotBlank()) {
+                                    TextButton(onClick = { versionSearch = "" }) { Text("×") }
+                                }
+                            }
+                        )
+                        if (versionSearch.isNotBlank()) {
+                            Text(
+                                "Показано ${displayVersions.size} з ${availableVersions.size} (фільтр: \"$versionSearch\")",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // Version dropdown — показує відфільтрований список (з пошуком) + тип для Vanilla
                         var expanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
                             OutlinedTextField(
                                 value = version,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Minecraft Version (${availableVersions.size})") },
+                                label = { Text("Minecraft Version (${displayVersions.size}/${availableVersions.size})") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                                 modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
-                            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                availableVersions.forEach { v ->
-                                    val entry = versionEntries.find { it.id == v }
-                                    val label = if (loader == MinecraftLoader.VANILLA && entry != null) "$v (${entry.type})" else v
-                                    DropdownMenuItem(text = { Text(label) }, onClick = { version = v; expanded = false })
+                            ExposedDropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                                modifier = Modifier.heightIn(max = 380.dp)
+                            ) {
+                                if (displayVersions.isEmpty()) {
+                                    DropdownMenuItem(text = { Text("Нічого не знайдено", color = MaterialTheme.colorScheme.onSurfaceVariant) }, onClick = {})
+                                } else {
+                                    displayVersions.forEach { v ->
+                                        val entry = versionEntries.find { it.id == v }
+                                        val typeLabel = entry?.type ?: "release"
+                                        val label = if (loader == MinecraftLoader.VANILLA) "$v  · $typeLabel" else v
+                                        DropdownMenuItem(
+                                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                                            onClick = { version = v; expanded = false }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -236,7 +326,12 @@ fun CreateServerScreen(onServerCreated: (Server) -> Unit, onCancel: () -> Unit, 
                                 Text("view-distance=$renderDistance (застосується при наступному старті)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Text("Available: ${availableVersions.size} versions for $loader", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Available: ${availableVersions.size} versions for $loader" +
+                                if (loader == MinecraftLoader.VANILLA) " (всі типи: release/snapshot/beta/alpha)" else " (релізи)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         // User-chosen directory
                         Text("Server directory (choose disk/folder):", style = MaterialTheme.typography.bodyMedium)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

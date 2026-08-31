@@ -75,6 +75,17 @@ object VersionManifestManager {
         }
     }
 
+    fun getFilteredWithSearch(versions: List<VersionEntry>, filter: ManifestFilter, query: String): List<VersionEntry> {
+        val byType = getFiltered(versions, filter)
+        if (query.isBlank()) return byType
+        val q = query.trim().lowercase()
+        return byType.filter { it.id.lowercase().contains(q) || it.type.lowercase().contains(q) }
+    }
+
+    fun countByType(versions: List<VersionEntry>): Map<String, Int> {
+        return versions.groupingBy { it.type }.eachCount()
+    }
+
     fun clearCache() {
         try { if (cacheFile.exists()) cacheFile.delete() } catch (_: Exception) {}
     }
@@ -112,7 +123,8 @@ object VersionManifestManager {
                 list.add(VersionEntry(id, type, url, time))
             }
         }
-        return list
+        // Sort by releaseTime descending (newest first)
+        return list.sortedByDescending { it.releaseTime ?: "" }
     }
 
     private fun httpGet(urlStr: String): String? {
