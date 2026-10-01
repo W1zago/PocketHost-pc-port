@@ -1,106 +1,180 @@
-# PocketHost Desktop — Windows MVP (Kotlin Multiplatform + Compose Desktop)
+# 🎮 PocketHost Desktop
 
-Port of **ANServer / PocketHost** (Android) to **Windows 10/11** desktop for managing Minecraft servers locally.
+An intuitive Windows desktop application designed for seamlessly managing local Minecraft servers. **PocketHost Desktop** provides a clean graphical interface to create, configure, launch, and monitor servers across various mod loaders without manual command-line setup.
 
-- **Stack:** Kotlin 1.9.22 · Compose Desktop 1.6.10 · SQLDelight 2.0.1 · Adoptium JDK 17 · ProcessBuilder + JNA
-- **Source:** `E:\Projects\baza-for-port` (Android, Kotlin + C++ NDK + PRoot) → new clean KMP project `E:\Projects\PocketHost-pc-port`
-- **Prompt:** `E:\Promts\PocketHost(PS port)\PocketHost_to_PC_conversion.md` (recommended: KMP + Compose Desktop)
+---
 
-## What's implemented (MVP Phase 1 — Windows only)
+## 💡 What it Does & Why Use It
 
-- **Project structure:** `common` (models, SQLDelight, Repository) + `desktop` (ProcessManager, JavaManager, MinecraftServerManager, Compose UI)
-- **DB:** SQLDelight `~/.pockethost/config/pockethost.db` (`servers`, `server_logs`, `settings`) — persistence via `ServerRepository:common/src/jvmMain/kotlin/com/pockethost/common/repository/ServerRepository.kt`
-- **Server types:** `MINECRAFT` only (8 loaders: VANILLA, PAPER, FABRIC, FORGE, NEOFORGE, SPIGOT, BUKKIT, PURPUR). Auto-download for **VANILLA/PAPER/FABRIC/PURPUR**, manual for FORGE/NEOFORGE/SPIGOT/BUKKIT with warning.
-- **Java:** `JAVA_HOME`/`PATH`/`~/.pockethost/java` detection → Adoptium auto-download per MC version (`JavaManager:desktop/src/main/kotlin/com/pockethost/desktop/java/JavaManager.kt:86`) — Temurin 17/21 mappings `requiredJavaForMinecraft`.
-- **Processes:** `ProcessBuilder` + coroutines reader, stdin/out, graceful `stop` → `SIGKILL` after 10s `ProcessManager:desktop/src/main/kotlin/com/pockethost/desktop/process/ProcessManager.kt:18`. Stats via PowerShell `WorkingSet64` (Phase 2: polling graphs).
-- **Files:** `~/.pockethost/servers/<name>/` (`AppPaths:common/src/jvmMain/kotlin/com/pockethost/common/util/AppPaths.kt`), `NetworkUtils:common/.../NetworkUtils.kt:10` for `isPortAvailable`/`getAvailablePort`.
-- **UI (Compose Desktop):** `Sidebar:desktop/.../ui/components/Sidebar.kt:20` + `ServerListScreen:desktop/.../screens/ServerListScreen.kt:26` + `ServerDetailScreen:desktop/.../screens/ServerDetailScreen.kt:27` (Overview/Console/Files/Settings tabs) + `CreateServerScreen:desktop/.../screens/CreateServerScreen.kt:18` (3-step wizard: name/type → config → create) + `SettingsScreen:desktop/.../screens/SettingsScreen.kt:10`.
-- **Phase 2 deferred:** UBUNTU_SERVER/Docker/WSL2, bundled JRE via `jlink`, system tray, autostart, themes (dark only MVP), backup, monitoring graphs, installers (MSI/DEB/DMG via jpackage + CI), Ukrainian locale.
+Setting up and managing dedicated Minecraft servers locally often requires dealing with terminal windows, command-line arguments, port conflicts, manual Java version matching, and complex configuration files.
 
-## Project layout
+**PocketHost Desktop** simplifies this into a unified management hub:
+
+- **Multi-Loader Support:** Deploy servers using Vanilla, PaperMC, Purpur, Fabric, Spigot, Bukkit, Forge, or NeoForge.
+- **Automated Downloads:** Instantly fetch required server binaries and matching Java execution environments.
+- **Live Server Console:** Real-time terminal output with direct command input support.
+- **Built-in Configuration Editor:** Modify server configuration files directly from within the application interface.
+- **Port Collision Prevention:** Automatic port scanning to prevent network binding errors.
+- **Process Protection:** Safe server start, graceful shutdown handling, and process status tracking.
+
+---
+
+## 🔄 Principle of Operation
+
+PocketHost Desktop orchestrates the complete lifecycle of a Minecraft server through four main layers: user interaction, core orchestration services, execution management, and data persistence.
+
+### Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph UI ["User Interface Layer"]
+        Dashboard["Server Overview & Wizard"]
+        ConsoleUI["Interactive Live Console"]
+        EditorUI["Configuration & File Editor"]
+    end
+
+    subgraph Core ["Orchestration Layer"]
+        ServerManager["Server Manager"]
+        JavaManager["Java Runtime Resolver"]
+        ProcessController["Process Controller"]
+    end
+
+    subgraph Execution ["Execution Layer"]
+        JavaRuntime["Java Execution Environment"]
+        MCInstance["Minecraft Server Instance"]
+    end
+
+    UI --> Core
+    ServerManager -->|Downloads & Setup| Execution
+    JavaManager -->|Matches Version| Execution
+    ProcessController -->|Launches & Streams Logs| JavaRuntime
+    JavaRuntime --> MCInstance
+```
+
+### Execution & Control Workflow
+
+When a user interacts with a server, the system executes the following operational pipeline:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as Application Interface
+    participant Service as Server Manager
+    participant Runtime as Java Resolver
+    participant Proc as Process Controller
+    participant Server as Minecraft Server Process
+
+    User->>App: Click "Start Server"
+    App->>Runtime: Resolve Compatible Java Environment
+    Runtime-->>App: Java Executable Ready
+    App->>Proc: Initiate Server Execution
+    Proc->>Server: Launch Server Process
+    activate Server
+    Server-->>Proc: Stream Console Output (stdout/stderr)
+    Proc-->>App: Display Live Logs in Console
+    User->>App: Send Command (e.g. "stop")
+    App->>Proc: Send Input to Process Stream
+    Proc->>Server: Write to Input Stream (stdin)
+    Server-->>Proc: Graceful Termination
+    deactivate Server
+    Proc-->>App: Update Status to "Stopped"
+```
+
+---
+
+## 🛠️ How it Works under the Hood
+
+1. **Server Provisioning:**
+   - Automatically queries official release feeds to obtain download links for server JARs.
+   - Generates essential environment files (such as `eula.txt` and `server.properties`) automatically upon server creation.
+
+2. **Environment & Runtime Management:**
+   - Detects the Minecraft version of the selected server and automatically provisions a matching, compatible Java runtime environment if one is not present.
+
+3. **Process Supervision & IO Handling:**
+   - Launches server instances in isolated sub-processes.
+   - Captures console output streams asynchronously and pipes them directly to the user interface.
+   - Provides a direct input pipeline to pass commands into the live running server process.
+
+4. **Network Guard:**
+   - Verifies local network socket availability before starting a server to ensure selected ports are free.
+
+---
+
+## 📂 Project Structure
 
 ```
 PocketHost-pc-port/
-├── build.gradle.kts / settings.gradle.kts (FOOJAY, KMP + Compose)
-├── common/
-│   ├── src/commonMain/kotlin/com/pockethost/common/Dummy.kt
-│   ├── src/commonMain/sqldelight/com/pockethost/database/servers.sq
-│   └── src/jvmMain/kotlin/com/pockethost/common/
-│       ├── model/Server.kt (Server, ServerConfig, MinecraftLoader:common/.../model/Server.kt:12)
-│       ├── util/{FileUtils,NetworkUtils,AppPaths,Platform}.kt
-│       └── database/DatabaseFactory.kt + repository/ServerRepository.kt
-├── desktop/
-│   ├── src/main/kotlin/com/pockethost/desktop/
-│   │   ├── Main.kt (1280x800 Window:desktop/.../Main.kt:7)
-│   │   ├── process/ProcessManager.kt
-│   │   ├── java/JavaManager.kt
-│   │   ├── minecraft/MinecraftServerManager.kt (8 loaders:desktop/.../minecraft/MinecraftServerManager.kt:20)
-│   │   └── ui/{App.kt,components/Sidebar.kt,screens/*}
-│   └── build.gradle.kts (compose.desktop.currentOs + material-icons-extended)
-└── gradle/wrapper (8.13)
+├── common/             # Core models, database schema, repository & utilities
+│   └── src/
+│       ├── commonMain/ # Cross-platform declarations & schemas
+│       └── jvmMain/    # Core data repositories, networking, and file handlers
+├── desktop/            # Desktop application & system execution logic
+│   └── src/
+│       └── main/
+│           ├── kotlin/ # User Interface screens, widgets, & process controllers
+│           └── resources/# Application icons, themes, and visual assets
+├── build.gradle.kts    # Build setup and dependency management
+└── settings.gradle.kts # Project module declarations
 ```
 
-## Requirements
+---
 
-- **JDK 17 Temurin** (`java -version` → 17.0.18)
-- **Windows 10/11 64-bit**, 4 GB RAM, 2 GB disk + servers
-- Gradle 8.13 (`./gradlew` via wrapper), no system `gradle` needed
+## 🚀 How to Run & Launch
 
-## Build & Run (MVP portable)
+### Prerequisites
+- **Operating System:** Windows 10 or Windows 11 (64-bit).
+- **Installed JDK:** JDK 17 or higher.
+
+---
+
+### Option 1: Running from Source
+Use the included Gradle wrapper to launch the application directly:
 
 ```powershell
-# 1. Build
-.\gradlew :common:build :desktop:build
-
-# 2. Run directly (Compose)
+# Launch application UI
 .\gradlew :desktop:run
+```
 
-# 3. Uber-jar (portable .zip distribution per prompt)
-.\gradlew :desktop:packageUberJarForCurrentOS
-# → desktop/build/compose/jars/PocketHost-windows-x64-1.0.0.jar
-java -jar desktop\build\compose\jars\PocketHost-windows-x64-1.0.0.jar
+---
 
-# 4. App image with bundled JRE (createDistributable)
+### Option 2: Building Standalone Executables
+
+#### Portable Executable Application
+Generates a self-contained application folder:
+```powershell
 .\gradlew :desktop:createDistributable
-# → desktop/build/compose/binaries/main/app/PocketHost/PocketHost.exe
-#   (runtime at .../runtime, portable folder)
+```
+*Launch via executable:* `desktop/build/compose/binaries/main/app/PocketHost/PocketHost.exe`
 
-# 5. MSI installer (Phase 2, requires WiX 3.11 which is auto-downloaded)
+#### Single Portable Jar
+Builds a standalone executable JAR file:
+```powershell
+.\gradlew :desktop:packageUberJarForCurrentOS
+```
+*Run via java command:*
+```powershell
+java -jar desktop/build/compose/jars/PocketHost-windows-x64-1.0.0.jar
+```
+
+#### Windows Installer Package
+Creates an executable Windows installer package (`.msi`):
+```powershell
 .\gradlew :desktop:packageMsi
 ```
 
-## How it works
+---
 
-1. **Create Server:** `CreateServerScreen` fetches versions via Mojang/PaperMC/Purpur/Fabric meta → `MinecraftServerManager.createServer:desktop/.../MinecraftServerManager.kt:15` downloads JAR (`httpGet`/`downloadFile` with redirects), creates `eula.txt`, `server.properties`, `start.bat`/`start.sh`.
-2. **Start:** `ServerListScreen.startServer:desktop/.../screens/ServerListScreen.kt:238` → `JavaManager.ensureJava` → `provisionIfNeeded` → `ProcessBuilder(listOf(java.path, "-Xmx...","-jar", jar, "nogui"))` → `ProcessManager.startProcess` with `onOutput` → `ServerRepository.appendLog` (Flow `getServerLogs`).
-3. **Console:** `ServerConsoleTab:desktop/.../screens/ServerDetailScreen.kt:175` shows `server_logs` flow, input via `ProcessManager.writeInput(serverId,"cmd\n")`.
-4. **Files:** `ServerFilesTab:desktop/.../screens/ServerDetailScreen.kt:244` browse `File(server.workingDirectory)`, edit (1024 KB limit, `readText`/`writeText`), open in Explorer via `ProcessBuilder("explorer", path)`.
-5. **DB:** `AppPaths.appDir` → `~/.pockethost/`, `DatabaseFactory.createDriver:common/.../database/DatabaseFactory.kt:12` with `JdbcSqliteDriver("jdbc:sqlite:.../pockethost.db")`.
+## 🗺️ Roadmap
 
-## Ports & Security
+- [ ] **System Tray Minimization:** Keep servers running silently in the background.
+- [ ] **Automated Backups:** One-click scheduled snapshots of server worlds.
+- [ ] **Containerization Support:** Linux server execution via Docker or WSL2.
+- [ ] **Performance Analytics:** Visual graphs for real-time CPU and RAM monitoring.
 
-- No Android sandbox — all ports available (`NetworkUtils.isPortAvailable:common/.../NetworkUtils.kt:10` via `ServerSocket`, `getAvailablePort` fallback).
-- Firewall Phase 2 (`netsh advfirewall` per prompt).
+---
 
-## Troubleshooting
+## 📄 License
 
-- **Java not found:** `Settings` tab runs `JavaManager.ensureJava(17)` → Adoptium `https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse`.
-- **Port in use:** Wizard validates `NetworkUtils.isValidPort`/`isPortAvailable`, suggests `getAvailablePort`.
-- **Server won't start:** check Console logs, `workingDirectory`, JAR existence (`paper.jar`/`server.jar` etc.), `eula=true`.
-- **Native C++ removed:** all JNI/PRoot replaced by `ProcessBuilder`; `native/` module dropped (per prompt Phase).
-- **DB errors:** delete `~/.pockethost/config/pockethost.db` and restart (schema recreated via `Database.Schema.create`).
-
-## Roadmap (from `PocketHost_deployment_final.md`)
-
-- **Phase 2:** tray (`SystemTrayManager`), auto-start (Registry `HKCU/.../Run`), light/dark theme, backup zip, graphs (CPU/RAM polling 5 s), installers, Bundled JRE (`jlink`), Ubuntu container (Docker/WSL2), Ukrainian.
-- **CI:** GitHub Actions (windows `packageMsi`, ubuntu `packageDeb/Rpm`, macOS `packageDmg`) + release.
-
-## License
-
-Provided as-is for educational purposes.
-
-## References
-
-- Prompt: `E:\Promts\PocketHost(PS port)\PocketHost_to_PC_conversion.md:1`
-- Specs: `PocketHost_technical_specs.md:1` (ProcessManager/JavaManager/MinecraftManager)
-- UI: `PocketHost_UI_components.md:1`, DB: `PocketHost_database_repository_final.md:1`
+This project is open-source and provided under the [MIT License](LICENSE).
