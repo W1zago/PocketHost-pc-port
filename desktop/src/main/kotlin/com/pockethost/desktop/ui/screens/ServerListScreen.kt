@@ -23,6 +23,8 @@ import com.pockethost.common.repository.ServerRepository
 import kotlinx.coroutines.launch
 import java.io.File
 
+import com.pockethost.common.i18n.Strings
+
 @Composable
 fun ServerListScreen(
     onServerSelected: (Server) -> Unit,
@@ -33,6 +35,7 @@ fun ServerListScreen(
     val repository = remember { ServerRepository.instance }
     val servers by repository.getAllServers().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
+    val lang by Strings.language.collectAsState()
 
     Row(Modifier.fillMaxSize()) {
         // Left list
@@ -47,22 +50,22 @@ fun ServerListScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Servers", style = MaterialTheme.typography.titleLarge)
-                        Text("${servers.size} total", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Strings.tr("servers.title"), style = MaterialTheme.typography.titleLarge)
+                        Text("${servers.size} ${Strings.tr("servers.total")}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(onClick = onCreateServer) {
-                        Text("+ New")
+                        Text(Strings.tr("servers.newBtn"))
                     }
                 }
                 HorizontalDivider()
                 if (servers.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("No servers yet", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(Strings.tr("servers.noServers"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(8.dp))
-                            Text("Create your first Minecraft server", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(Strings.tr("servers.createFirst"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(16.dp))
-                            Button(onClick = onCreateServer) { Text("Create Server") }
+                            Button(onClick = onCreateServer) { Text(Strings.tr("server.create.btn")) }
                         }
                     }
                 } else {
@@ -113,9 +116,9 @@ fun ServerListScreen(
             } else {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Select a server", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Strings.tr("servers.select"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Choose a server from the list to view details", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Strings.tr("servers.choose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -159,8 +162,15 @@ fun ServerListItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                val statusTextKey = when (server.status) {
+                    ServerStatus.RUNNING -> "status.running"
+                    ServerStatus.STOPPED -> "status.stopped"
+                    ServerStatus.STARTING -> "status.starting"
+                    ServerStatus.STOPPING -> "status.stopping"
+                    ServerStatus.ERROR -> "status.error"
+                }
                 Text(
-                    text = server.status.name,
+                    text = Strings.tr(statusTextKey),
                     style = MaterialTheme.typography.labelSmall,
                     color = when (server.status) {
                         ServerStatus.RUNNING -> Color(0xFF4CAF50)
@@ -170,9 +180,9 @@ fun ServerListItem(
                 )
             }
             if (server.status == ServerStatus.RUNNING) {
-                IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = "Stop") }
+                IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = Strings.tr("server.stop")) }
             } else if (server.status == ServerStatus.STOPPED || server.status == ServerStatus.ERROR) {
-                IconButton(onClick = onStart) { Icon(Icons.Default.PlayArrow, contentDescription = "Start") }
+                IconButton(onClick = onStart) { Icon(Icons.Default.PlayArrow, contentDescription = Strings.tr("server.start")) }
             } else {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
@@ -194,41 +204,42 @@ fun ServerPreview(server: Server, onStart: () -> Unit, onStop: () -> Unit, onOpe
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Server Information", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("server.info.title"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                InfoRow("Directory", server.workingDirectory)
-                InfoRow("Version", server.config.minecraftVersion ?: "Unknown")
-                InfoRow("Loader", server.config.minecraftLoader?.name ?: "Unknown")
-                InfoRow("Memory", "${server.config.minMemory} - ${server.config.maxMemory} MB")
+                InfoRow(Strings.tr("server.info.directory"), server.workingDirectory)
+                InfoRow(Strings.tr("server.info.version"), server.config.minecraftVersion ?: "Unknown")
+                InfoRow(Strings.tr("server.info.loader"), server.config.minecraftLoader?.name ?: "Unknown")
+                InfoRow(Strings.tr("server.info.memory"), "${server.config.minMemory} - ${server.config.maxMemory} MB")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (server.status) {
                 ServerStatus.STOPPED, ServerStatus.ERROR -> {
-                    Button(onClick = onStart) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start") }
+                    Button(onClick = onStart) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.start")) }
                 }
                 ServerStatus.RUNNING -> {
                     Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                        Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop")
+                        Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.stop"))
                     }
-                    OutlinedButton(onClick = onStop) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Restart") }
+                    OutlinedButton(onClick = onStop) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.restart")) }
                 }
                 else -> { CircularProgressIndicator(Modifier.size(24.dp)) }
             }
-            OutlinedButton(onClick = onOpen) { Text("Open Details") }
+            OutlinedButton(onClick = onOpen) { Text(Strings.tr("servers.openDetails")) }
         }
     }
 }
 
 @Composable
 fun StatusChip(status: ServerStatus) {
-    val (color, text) = when (status) {
-        ServerStatus.RUNNING -> Color(0xFF4CAF50) to "Running"
-        ServerStatus.STOPPED -> Color.Gray to "Stopped"
-        ServerStatus.STARTING -> Color(0xFFFFC107) to "Starting"
-        ServerStatus.STOPPING -> Color(0xFFFFC107) to "Stopping"
-        ServerStatus.ERROR -> Color(0xFFF44336) to "Error"
+    val (color, textKey) = when (status) {
+        ServerStatus.RUNNING -> Color(0xFF4CAF50) to "status.running"
+        ServerStatus.STOPPED -> Color.Gray to "status.stopped"
+        ServerStatus.STARTING -> Color(0xFFFFC107) to "status.starting"
+        ServerStatus.STOPPING -> Color(0xFFFFC107) to "status.stopping"
+        ServerStatus.ERROR -> Color(0xFFF44336) to "status.error"
     }
+    val text = Strings.tr(textKey)
     Surface(color = color.copy(alpha = 0.2f), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))

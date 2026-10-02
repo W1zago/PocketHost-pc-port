@@ -18,22 +18,27 @@ import androidx.compose.ui.unit.dp
 import com.pockethost.common.i18n.Language
 import com.pockethost.common.i18n.Strings
 import com.pockethost.desktop.ui.Screen
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 
 @Composable
 fun Sidebar(
     currentScreen: Screen,
     onScreenSelected: (Screen) -> Unit
 ) {
-    Surface(
-        modifier = Modifier.width(220.dp).fillMaxHeight(),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
+    val lang by Strings.language.collectAsState()
+    key(lang) {
+        Surface(
+            modifier = Modifier.width(220.dp).fillMaxHeight(),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text(
-                text = "PocketHost",
+                text = Strings.tr("app.title"),
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 24.dp)
+                modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 text = Strings.tr("app.subtitle"),
@@ -66,12 +71,13 @@ fun Sidebar(
 
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "MVP • Windows • v1.0.0",
+                text = Strings.tr("app.mvpInfo"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
+}
 }
 
 @Composable

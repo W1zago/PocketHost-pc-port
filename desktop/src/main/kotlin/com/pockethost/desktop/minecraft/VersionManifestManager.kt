@@ -1,5 +1,6 @@
 package com.pockethost.desktop.minecraft
 
+import com.pockethost.common.i18n.Strings
 import com.pockethost.common.util.AppPaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,12 +24,13 @@ object VersionManifestManager {
 
     private val cacheFile: File get() = File(AppPaths.configDir, "version_manifest_cache.json")
 
-    sealed class ManifestFilter(val label: String, val typeValue: String?) {
-        object All : ManifestFilter("Всі", null)
-        object Release : ManifestFilter("Release", "release")
-        object Snapshot : ManifestFilter("Snapshot", "snapshot")
-        object Alpha : ManifestFilter("Alpha", "old_alpha")
-        object Beta : ManifestFilter("Beta", "old_beta")
+    sealed class ManifestFilter(private val labelKey: String, val typeValue: String?) {
+        val label: String get() = Strings.tr(labelKey)
+        object All : ManifestFilter("server.create.filterAll", null)
+        object Release : ManifestFilter("server.create.filterRelease", "release")
+        object Snapshot : ManifestFilter("server.create.filterSnapshot", "snapshot")
+        object Alpha : ManifestFilter("server.create.filterAlpha", "old_alpha")
+        object Beta : ManifestFilter("server.create.filterBeta", "old_beta")
     }
 
     val allFilters = listOf(ManifestFilter.All, ManifestFilter.Release, ManifestFilter.Snapshot, ManifestFilter.Beta, ManifestFilter.Alpha)

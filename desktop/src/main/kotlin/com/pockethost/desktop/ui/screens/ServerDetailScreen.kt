@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.pockethost.common.i18n.Strings
 import com.pockethost.common.model.Server
 import com.pockethost.common.model.ServerStatus
 import com.pockethost.common.repository.ServerRepository
@@ -33,20 +34,26 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
     val repo = remember { ServerRepository.instance }
     val servers by repo.getAllServers().collectAsState(emptyList())
     val server = servers.find { it.id == serverId }
+    val currentLang by Strings.language.collectAsState()
 
     if (server == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Server not found")
+                Text(Strings.tr("server.detail.notFound"))
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = onBack) { Text("Back") }
+                Button(onClick = onBack) { Text(Strings.tr("common.back")) }
             }
         }
         return
     }
 
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Overview", "Console", "Files", "Settings")
+    val tabs = listOf(
+        Strings.tr("server.tab.overview"),
+        Strings.tr("server.tab.console"),
+        Strings.tr("server.tab.files"),
+        Strings.tr("server.tab.settings")
+    )
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize()) {
@@ -54,7 +61,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
         Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = Strings.tr("common.back")) }
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(server.name, style = MaterialTheme.typography.titleLarge)
@@ -73,7 +80,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
                                         if (err != null) onError(err)
                                     }
                                 }) {
-                                    Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start")
+                                    Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.start"))
                                 }
                             }
                             ServerStatus.RUNNING -> {
@@ -83,7 +90,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
                                         if (err != null) onError(err)
                                     }
                                 }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                    Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop")
+                                    Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.stop"))
                                 }
                                 OutlinedButton(onClick = {
                                     scope.launch {
@@ -93,7 +100,7 @@ fun ServerDetailScreen(serverId: String, onBack: () -> Unit, onServerDeleted: ()
                                         val err2 = startServer(server)
                                         if (err2 != null) onError(err2)
                                     }
-                                }) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Restart") }
+                                }) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.restart")) }
                             }
                             else -> { CircularProgressIndicator(Modifier.size(24.dp)) }
                         }
@@ -128,60 +135,58 @@ fun ServerOverviewTab(server: Server) {
     ) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Server Information", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("server.info.title"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                InfoRow("Server ID", server.id)
-                InfoRow("Type", server.type.name)
-                InfoRow("Port", server.port.toString())
-                InfoRow("Directory", server.workingDirectory)
-                server.config.minecraftVersion?.let { InfoRow("Minecraft Version", it) }
-                server.config.minecraftLoader?.let { InfoRow("Loader", it.name) }
-                InfoRow("Memory", "${server.config.minMemory} MB - ${server.config.maxMemory} MB")
+                InfoRow(Strings.tr("server.info.serverId"), server.id)
+                InfoRow(Strings.tr("server.info.type"), server.type.name)
+                InfoRow(Strings.tr("server.info.port"), server.port.toString())
+                InfoRow(Strings.tr("server.info.directory"), server.workingDirectory)
+                server.config.minecraftVersion?.let { InfoRow(Strings.tr("server.info.version"), it) }
+                server.config.minecraftLoader?.let { InfoRow(Strings.tr("server.info.loader"), it.name) }
+                InfoRow(Strings.tr("server.info.memory"), "${server.config.minMemory} MB - ${server.config.maxMemory} MB")
                 val created = java.time.Instant.ofEpochMilli(server.createdAt).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                InfoRow("Created", created)
+                InfoRow(Strings.tr("server.info.created"), created)
                 server.lastStarted?.let {
                     val started = java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                    InfoRow("Last Started", started)
+                    InfoRow(Strings.tr("server.info.lastStarted"), started)
                 }
-                if (server.pid != -1L) InfoRow("PID", server.pid.toString())
+                if (server.pid != -1L) InfoRow(Strings.tr("server.info.pid"), server.pid.toString())
             }
         }
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Performance", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("server.perf.title"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 if (server.status == ServerStatus.RUNNING && stats != null) {
                     Text("CPU: ${stats.cpuPercent}%")
                     Text("Memory: ${stats.memoryBytes / 1024 / 1024} MB")
                     Text("Threads: ${stats.threadCount}")
                 } else if (server.status == ServerStatus.RUNNING) {
-                    Text("Collecting stats...", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    // Poll every 5s - handled externally, for MVP just show placeholder
+                    Text(Strings.tr("server.perf.collecting"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    Text("Server not running", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(Strings.tr("server.perf.notRunning"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Quick Actions", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("server.actions.title"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = {
                     try {
                         val dir = File(server.workingDirectory)
                         if (dir.exists()) {
-                            // Open folder in explorer
                             ProcessBuilder("explorer", dir.absolutePath).start()
                         }
                     } catch (e: Exception) { e.printStackTrace() }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Open Server Folder")
+                    Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.actions.openFolder"))
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = {}, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Backup, null); Spacer(Modifier.width(8.dp)); Text("Create Backup (Phase 2)")
+                    Icon(Icons.Default.Backup, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("server.actions.backup"))
                 }
             }
         }
@@ -203,10 +208,9 @@ fun ServerConsoleTab(server: Server) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        // Header with Copy All
         Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF2D2D2D)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("${logs.size} lines", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
+                Text("${logs.size} ${Strings.tr("console.lines")}", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         try {
@@ -214,14 +218,14 @@ fun ServerConsoleTab(server: Server) {
                             val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
                             clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
                         } catch (_: Exception) {}
-                    }, enabled = logs.isNotEmpty()) { Text("Copy All", style = MaterialTheme.typography.labelSmall) }
+                    }, enabled = logs.isNotEmpty()) { Text(Strings.tr("console.copyAll"), style = MaterialTheme.typography.labelSmall) }
                     OutlinedButton(onClick = {
                         try {
                             val file = java.io.File(System.getProperty("java.io.tmpdir"), "pockethost-${server.id}.log")
                             file.writeText(logs.joinToString("\n"))
                             java.awt.Desktop.getDesktop().open(file)
                         } catch (_: Exception) {}
-                    }, enabled = logs.isNotEmpty()) { Text("Save", style = MaterialTheme.typography.labelSmall) }
+                    }, enabled = logs.isNotEmpty()) { Text(Strings.tr("console.save"), style = MaterialTheme.typography.labelSmall) }
                 }
             }
         }
@@ -237,7 +241,7 @@ fun ServerConsoleTab(server: Server) {
                     }
                     if (logs.isEmpty()) {
                         item {
-                            Text("No logs yet. Start the server to see output.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                            Text(Strings.tr("console.noLogs"), color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -250,7 +254,7 @@ fun ServerConsoleTab(server: Server) {
                     value = commandInput,
                     onValueChange = { commandInput = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Enter command...") },
+                    placeholder = { Text(Strings.tr("console.placeholder")) },
                     singleLine = true
                 )
                 Spacer(Modifier.width(8.dp))
@@ -261,7 +265,7 @@ fun ServerConsoleTab(server: Server) {
                         commandInput = ""
                     }
                 }, enabled = commandInput.isNotBlank()) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = Strings.tr("console.send"))
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,7 +278,7 @@ fun ServerConsoleTab(server: Server) {
             }
         } else {
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Text("Server must be running to send commands", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Strings.tr("console.requiresRunning"), modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -293,7 +297,7 @@ fun ServerFilesTab(server: Server) {
 
     LaunchedEffect(currentPath) {
         if (!FileUtils.validatePath(currentPath, baseDir)) {
-            fileError = "Access denied: path outside server directory"
+            fileError = Strings.tr("files.accessDenied")
             currentPath = baseDir
             return@LaunchedEffect
         }
@@ -304,21 +308,21 @@ fun ServerFilesTab(server: Server) {
     LaunchedEffect(selectedFile) {
         selectedFile?.let { file ->
             if (!FileUtils.validatePath(file, baseDir)) {
-                fileContent = "Access denied: path outside server directory"
-                fileError = "Access denied"
+                fileContent = Strings.tr("files.accessDenied")
+                fileError = Strings.tr("files.accessDenied")
                 return@let
             }
             if (file.isFile) {
                 try {
                     if (file.length() > 1024 * 1024) {
-                        fileContent = "File too large (${file.length() / 1024} KB)"
+                        fileContent = Strings.tr("files.tooLarge").replace("{size}", (file.length() / 1024).toString())
                     } else {
                         fileContent = file.readText()
                     }
                     editedContent = fileContent
                     isEditing = false
                 } catch (e: Exception) {
-                    fileContent = "Cannot read file: ${e.message}"
+                    fileContent = Strings.tr("files.cannotRead").replace("{msg}", e.message ?: "")
                 }
             }
         }
@@ -333,14 +337,14 @@ fun ServerFilesTab(server: Server) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { currentPath = File(server.workingDirectory) }) {
-                            Icon(Icons.Default.Home, contentDescription = "Root")
+                            Icon(Icons.Default.Home, contentDescription = Strings.tr("files.root"))
                         }
                         Text(currentPath.name.ifEmpty { server.name }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                         IconButton(onClick = {
                             try {
                                 ProcessBuilder("explorer", currentPath.absolutePath).start()
                             } catch (e: Exception) {}
-                        }) { Icon(Icons.Default.FolderOpen, contentDescription = "Open in Explorer") }
+                        }) { Icon(Icons.Default.FolderOpen, contentDescription = Strings.tr("files.openExplorer")) }
                     }
                 }
                 HorizontalDivider()
@@ -359,7 +363,7 @@ fun ServerFilesTab(server: Server) {
                             selected = file == selectedFile,
                             onClick = {
                                 if (!FileUtils.validatePath(file, baseDir)) {
-                                    fileError = "Access denied: ${file.name}"
+                                    fileError = Strings.tr("files.accessDenied")
                                     return@FileListItem
                                 }
                                 if (file.isDirectory) {
@@ -374,14 +378,13 @@ fun ServerFilesTab(server: Server) {
                 }
             }
         }
-        // Preview
         Box(Modifier.weight(1f).fillMaxSize()) {
             if (selectedFile == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Description, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Select a file to preview", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Strings.tr("files.selectPreview"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -395,7 +398,7 @@ fun ServerFilesTab(server: Server) {
                             }
                             Row {
                                 if (!isEditing) {
-                                    OutlinedButton(onClick = { isEditing = true }) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(4.dp)); Text("Edit") }
+                                    OutlinedButton(onClick = { isEditing = true }) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(4.dp)); Text(Strings.tr("common.edit")) }
                                 } else {
                                     Button(onClick = {
                                         try {
@@ -403,9 +406,9 @@ fun ServerFilesTab(server: Server) {
                                             fileContent = editedContent
                                             isEditing = false
                                         } catch (e: Exception) { e.printStackTrace() }
-                                    }) { Icon(Icons.Default.Save, null); Spacer(Modifier.width(4.dp)); Text("Save") }
+                                    }) { Icon(Icons.Default.Save, null); Spacer(Modifier.width(4.dp)); Text(Strings.tr("common.save")) }
                                     Spacer(Modifier.width(8.dp))
-                                    OutlinedButton(onClick = { editedContent = fileContent; isEditing = false }) { Text("Cancel") }
+                                    OutlinedButton(onClick = { editedContent = fileContent; isEditing = false }) { Text(Strings.tr("common.cancel")) }
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 IconButton(onClick = { selectedFile = null }) { Icon(Icons.Default.Close, null) }
@@ -463,54 +466,54 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("General", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("settings.general"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                InfoRow("Name", server.name)
-                InfoRow("Port", server.port.toString())
-                InfoRow("Status", server.status.name)
-                InfoRow("Auto Start", if (server.autoStart) "Enabled" else "Disabled")
+                InfoRow(Strings.tr("server.name"), server.name)
+                InfoRow(Strings.tr("server.port"), server.port.toString())
+                InfoRow(Strings.tr("server.info.type"), server.status.name)
+                InfoRow(Strings.tr("settings.autoStart"), if (server.autoStart) Strings.tr("settings.enabled") else Strings.tr("settings.disabled"))
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Офлайн режим / Піратські акаунти", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("settings.offlineSection"), style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
-                        Text("Офлайн режим", style = MaterialTheme.typography.bodyMedium)
-                        Text("online-mode=${if (isOffline) "false" else "true"} • без перевірки Mojang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Strings.tr("settings.offlineTitle"), style = MaterialTheme.typography.bodyMedium)
+                        Text(Strings.tr("server.offlineModeSubtitle"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = isOffline, onCheckedChange = { offline ->
                         isOffline = offline
                         try {
                             com.pockethost.desktop.util.ServerPropertiesManager.setOfflineMode(serverDir, offline)
-                            statusMsg = if (offline) "Увімкнено офлайн режим (online-mode=false)" else "Вимкнено офлайн режим (online-mode=true)"
-                        } catch (e: Exception) { statusMsg = "Помилка: ${e.message}" }
+                            statusMsg = if (offline) Strings.tr("settings.offlineModeEnabled") else Strings.tr("settings.offlineModeDisabled")
+                        } catch (e: Exception) { statusMsg = "${Strings.tr("server.create.error").replace("{msg}", e.message ?: "")}" }
                     })
                 }
                 statusMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-                Text("Зберігається в server.properties кожного сервера. UUID генерується автоматично через UUID.randomUUID(). Застосується при наступному старті.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Strings.tr("settings.offlineNote"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Render Distance (промальовка чанків)", style = MaterialTheme.typography.titleMedium)
+                Text(Strings.tr("server.renderDistance"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         renderDistance = 8
                         com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 8)
-                        statusMsg = "Render distance = 8 (Низька)"
-                    }, colors = if (renderDistance == 8) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Низька") }
+                        statusMsg = "Render distance = 8 (${Strings.tr("server.renderDistance.low")})"
+                    }, colors = if (renderDistance == 8) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text(Strings.tr("server.renderDistance.low")) }
                     Button(onClick = {
                         renderDistance = 12
                         com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 12)
-                        statusMsg = "Render distance = 12 (Середня)"
-                    }, colors = if (renderDistance == 12) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Середня") }
+                        statusMsg = "Render distance = 12 (${Strings.tr("server.renderDistance.medium")})"
+                    }, colors = if (renderDistance == 12) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text(Strings.tr("server.renderDistance.medium")) }
                     Button(onClick = {
                         renderDistance = 16
                         com.pockethost.desktop.util.ServerPropertiesManager.setRenderDistance(serverDir, 16)
-                        statusMsg = "Render distance = 16 (Висока)"
-                    }, colors = if (renderDistance == 16) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text("Висока") }
+                        statusMsg = "Render distance = 16 (${Strings.tr("server.renderDistance.high")})"
+                    }, colors = if (renderDistance == 16) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(), modifier = Modifier.weight(1f)) { Text(Strings.tr("server.renderDistance.high")) }
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -519,19 +522,19 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
                         statusMsg = "Render distance = $renderDistance"
                     }, valueRange = 2f..32f, steps = 29, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(12.dp))
-                    Text("$renderDistance чанків", style = MaterialTheme.typography.bodyMedium)
+                    Text("$renderDistance ${Strings.tr("server.renderDistance.chunks")}", style = MaterialTheme.typography.bodyMedium)
                 }
-                Text("view-distance=$renderDistance (2-32, крок 1). Записується в server.properties, застосовується при наступному старті.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Strings.tr("settings.renderDistanceNote").replace("{distance}", renderDistance.toString()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Danger Zone", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                Text(Strings.tr("settings.dangerZone"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(8.dp))
-                Text("Delete this server and all its files. This action cannot be undone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Strings.tr("settings.dangerZoneNote"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { showDeleteConfirm = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                    Icon(Icons.Default.Delete, null); Spacer(Modifier.width(8.dp)); Text("Delete Server")
+                    Icon(Icons.Default.Delete, null); Spacer(Modifier.width(8.dp)); Text(Strings.tr("settings.deleteServer"))
                 }
             }
         }
@@ -540,8 +543,8 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Server?") },
-            text = { Text("Are you sure you want to delete '${server.name}'? All files in ${server.workingDirectory} will be removed.") },
+            title = { Text(Strings.tr("settings.deleteConfirmTitle")) },
+            text = { Text(Strings.tr("settings.deleteConfirmText").replace("{name}", server.name).replace("{dir}", server.workingDirectory)) },
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
@@ -555,9 +558,9 @@ fun ServerSettingsTab(server: Server, onDeleted: () -> Unit) {
                         onDeleted()
                     }
                     showDeleteConfirm = false
-                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text(Strings.tr("common.delete")) }
             },
-            dismissButton = { OutlinedButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
+            dismissButton = { OutlinedButton(onClick = { showDeleteConfirm = false }) { Text(Strings.tr("common.cancel")) } }
         )
     }
 }
