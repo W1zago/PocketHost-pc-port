@@ -86,15 +86,26 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - name: List downloaded files
+        run: ls -R
+
+      - name: Zip distributable
+        run: |
+          ls -R
+          zip -r pockethost-windows-dist.zip pockethost-windows-dist
+          ls -lh pockethost-windows-dist.zip
+          ls -lh pockethost-windows-msi/ pockethost-windows-exe/ pockethost-uberjar-windows/
+
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             pockethost-windows-msi/*.msi
             pockethost-windows-exe/*.exe
             pockethost-uberjar-windows/*.jar
-            pockethost-windows-dist/**/*
+            pockethost-windows-dist.zip
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
